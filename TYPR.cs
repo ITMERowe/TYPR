@@ -103,11 +103,11 @@ namespace TYPR
             pressEnter.Text = "Press Enter after text"; pressEnter.AutoSize = true; pressEnter.Padding = new Padding(10,5,0,0);
             top.Controls.Add(pressEnter);
 
-            start.Text = "Start (F8)"; start.Width = 110; start.Click += async (_,__) => await StartTypingAsync();
-            stop.Text = "Stop (F9)"; stop.Width = 110; stop.Click += (_,__) => StopTyping();
+            start.Text = "Start typing (F8)"; start.Width = 140; start.Click += StartButton_Click;
+            stop.Text = "Stop typing (F9)"; stop.Width = 140; stop.Click += (_,__) => StopTyping();
             top.Controls.Add(start); top.Controls.Add(stop);
 
-            status.Dock = DockStyle.Bottom; status.Height = 30; status.Text = "Ready — click Start, then focus the RDP target window during the countdown. F8=start, F9=stop.";
+            status.Dock = DockStyle.Bottom; status.Height = 30; status.Text = "Ready — click Start typing or press F8, then focus the target window during the countdown. F9 stops.";
             status.Padding = new Padding(8,6,0,0);
 
             text.Multiline = true;
@@ -166,6 +166,11 @@ namespace TYPR
             hotkeysRegistered = false;
         }
 
+        private async void StartButton_Click(object? sender, EventArgs e)
+        {
+            await StartTypingAsync();
+        }
+
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == NativeMethods.WM_HOTKEY)
@@ -190,7 +195,7 @@ namespace TYPR
                 int delay = (int)startDelay.Value;
                 for (int i = delay; i > 0; i--)
                 {
-                    status.Text = $"Starting in {i}s — focus the target inside RDP...";
+                    status.Text = $"Starting in {i}s — focus the target window...";
                     await Task.Delay(1000, cts.Token);
                 }
 
