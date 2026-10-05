@@ -42,7 +42,7 @@ No .NET installation is required if you use the self-contained release build.
 Clone the repository:
 
 ```powershell
-git clone https://github.com/YOUR-USERNAME/TYPR.git
+git clone https://github.com/ITMERowe/TYPR.git
 cd TYPR
 ```
 
