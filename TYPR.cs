@@ -78,6 +78,7 @@ namespace TYPR
         private readonly Label status = new Label();
         private CancellationTokenSource? cts;
         private readonly Random rng = new Random();
+        private bool hotkeysRegistered;
 
         private const int HOTKEY_START = 1;
         private const int HOTKEY_STOP = 2;
@@ -122,18 +123,47 @@ namespace TYPR
             Controls.Add(status);
         }
 
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            TryRegisterHotKeys();
+        }
+
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            NativeMethods.RegisterHotKey(Handle, HOTKEY_START, 0, (uint)Keys.F8);
-            NativeMethods.RegisterHotKey(Handle, HOTKEY_STOP, 0, (uint)Keys.F9);
+            TryRegisterHotKeys();
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
         {
+            TryUnregisterHotKeys();
+            base.OnHandleDestroyed(e);
+        }
+
+        private void TryRegisterHotKeys()
+        {
+            if (hotkeysRegistered || IsDisposed || Handle == IntPtr.Zero) return;
+
+            bool startOk = NativeMethods.RegisterHotKey(Handle, HOTKEY_START, 0, (uint)Keys.F8);
+            bool stopOk = NativeMethods.RegisterHotKey(Handle, HOTKEY_STOP, 0, (uint)Keys.F9);
+            hotkeysRegistered = startOk && stopOk;
+
+            if (!hotkeysRegistered)
+            {
+                status.Text = "F8/F9 hotkeys are unavailable; another app may already be using them.";
+                if (!startOk) NativeMethods.UnregisterHotKey(Handle, HOTKEY_START);
+                if (!stopOk) NativeMethods.UnregisterHotKey(Handle, HOTKEY_STOP);
+            }
+        }
+
+        private void TryUnregisterHotKeys()
+        {
+            if (!hotkeysRegistered || IsDisposed || Handle == IntPtr.Zero) return;
+
             NativeMethods.UnregisterHotKey(Handle, HOTKEY_START);
             NativeMethods.UnregisterHotKey(Handle, HOTKEY_STOP);
-            base.OnHandleDestroyed(e);
+            hotkeysRegistered = false;
         }
 
         protected override void WndProc(ref Message m)
