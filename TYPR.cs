@@ -24,6 +24,7 @@ namespace TYPR
         public struct InputUnion
         {
             [FieldOffset(0)] public KEYBDINPUT ki;
+            [FieldOffset(0)] public MOUSEINPUT mi;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -31,6 +32,17 @@ namespace TYPR
         {
             public ushort wVk;
             public ushort wScan;
+            public uint dwFlags;
+            public uint time;
+            public UIntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MOUSEINPUT
+        {
+            public int dx;
+            public int dy;
+            public uint mouseData;
             public uint dwFlags;
             public uint time;
             public UIntPtr dwExtraInfo;
@@ -52,7 +64,7 @@ namespace TYPR
             inputs[0].U.ki = new KEYBDINPUT { wVk = 0, wScan = ch, dwFlags = KEYEVENTF_UNICODE };
             inputs[1].type = INPUT_KEYBOARD;
             inputs[1].U.ki = new KEYBDINPUT { wVk = 0, wScan = ch, dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP };
-            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+            SendInputChecked(inputs);
         }
 
         public static void SendVirtualKey(ushort vk)
@@ -62,7 +74,19 @@ namespace TYPR
             inputs[0].U.ki = new KEYBDINPUT { wVk = vk, wScan = 0, dwFlags = 0 };
             inputs[1].type = INPUT_KEYBOARD;
             inputs[1].U.ki = new KEYBDINPUT { wVk = vk, wScan = 0, dwFlags = KEYEVENTF_KEYUP };
-            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+            SendInputChecked(inputs);
+        }
+
+        private static void SendInputChecked(INPUT[] inputs)
+        {
+            uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+            if (sent == (uint)inputs.Length) return;
+
+            int error = Marshal.GetLastWin32Error();
+            string detail = error == 0
+                ? "Windows blocked or rejected the synthetic keyboard input."
+                : new System.ComponentModel.Win32Exception(error).Message;
+            throw new InvalidOperationException($"Windows accepted {sent} of {inputs.Length} keyboard events. {detail}");
         }
     }
 
@@ -223,6 +247,11 @@ namespace TYPR
             catch (OperationCanceledException)
             {
                 status.Text = "Stopped.";
+            }
+            catch (InvalidOperationException ex)
+            {
+                status.Text = "Typing failed.";
+                MessageBox.Show(this, ex.Message, "TYPR - input failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
