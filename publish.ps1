@@ -13,4 +13,8 @@ dotnet publish $project `
     /p:PublishTrimmed=false `
     -o $output
 
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet publish failed with exit code $LASTEXITCODE."
+}
+
 Write-Host "Published to: $output"
