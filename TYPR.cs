@@ -1,8 +1,10 @@
 using System;
 using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
 using System.Windows.Forms;
 
 namespace TYPR
@@ -28,7 +30,96 @@ namespace TYPR
 
     internal static class Theme
     {
-        public static readonly bool Dark = DetectDark();
+        private static readonly string SettingsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "TYPR Kimi",
+            "settings.json");
+
+        public static readonly UserSettings Settings = LoadSettings();
+        public static bool Dark { get; private set; } = Settings.Theme switch
+        {
+            "Dark" => true,
+            "Light" => false,
+            _ => DetectDark()
+        };
+
+        public static void SetMode(string mode)
+        {
+            Settings.Theme = mode;
+            Dark = mode switch
+            {
+                "Dark" => true,
+                "Light" => false,
+                _ => DetectDark()
+            };
+        }
+
+        public static void SaveSettings()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
+                File.WriteAllText(SettingsPath, JsonSerializer.Serialize(Settings, new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                }));
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                MessageBox.Show(
+                    $"TYPR could not save your preferences. Changes will apply for this session only.\n\n{ex.Message}",
+                    "TYPR - settings could not be saved",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        private static UserSettings LoadSettings()
+        {
+            try
+            {
+                if (!File.Exists(SettingsPath)) return new UserSettings();
+
+                var settings = JsonSerializer.Deserialize<UserSettings>(File.ReadAllText(SettingsPath))
+                    ?? new UserSettings();
+                if (settings.Theme != "System" && settings.Theme != "Light" && settings.Theme != "Dark")
+                    settings.Theme = "System";
+                if (!IsValidKey(settings.StartKey)) settings.StartKey = (int)Keys.F8;
+                if (!IsValidKey(settings.StopKey)) settings.StopKey = (int)Keys.F9;
+                settings.StartModifiers &= HotkeyModifiers.Supported;
+                settings.StopModifiers &= HotkeyModifiers.Supported;
+                if (settings.StartKey == settings.StopKey &&
+                    settings.StartModifiers == settings.StopModifiers)
+                {
+                    settings.StopKey = settings.StartKey == (int)Keys.F9
+                        ? (int)Keys.F10
+                        : (int)Keys.F9;
+                    settings.StopModifiers = 0;
+                }
+                return settings;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException)
+            {
+                MessageBox.Show(
+                    $"TYPR could not read its preferences. Default settings will be used.\n\n{ex.Message}",
+                    "TYPR - settings could not be loaded",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return new UserSettings();
+            }
+        }
+
+        private static bool IsValidKey(int value)
+        {
+            var key = (Keys)value;
+            return key != Keys.None &&
+                key != Keys.ControlKey &&
+                key != Keys.ShiftKey &&
+                key != Keys.Menu &&
+                key != Keys.LWin &&
+                key != Keys.RWin &&
+                Enum.IsDefined(typeof(Keys), key);
+        }
 
         private static bool DetectDark()
         {
@@ -45,21 +136,103 @@ namespace TYPR
             }
         }
 
-        public static Color Page        => Dark ? Color.FromArgb(30, 30, 30)   : Color.FromArgb(243, 243, 243);
-        public static Color Surface     => Dark ? Color.FromArgb(37, 37, 38)   : Color.White;
-        public static Color SurfaceMuted=> Dark ? Color.FromArgb(51, 51, 51)   : Color.FromArgb(232, 232, 232);
-        public static Color Editor      => Dark ? Color.FromArgb(30, 30, 30)   : Color.White;
-        public static Color Input       => Dark ? Color.FromArgb(60, 60, 60)   : Color.White;
-        public static Color Border      => Dark ? Color.FromArgb(60, 60, 60)   : Color.FromArgb(206, 206, 206);
-        public static Color PaneBorder  => Dark ? Color.FromArgb(43, 43, 43)   : Color.FromArgb(224, 224, 224);
-        public static Color FocusBorder => Color.FromArgb(0, 127, 212);
-        public static Color Text        => Dark ? Color.FromArgb(204, 204, 204): Color.FromArgb(51, 51, 51);
-        public static Color Text2       => Dark ? Color.FromArgb(156, 156, 156): Color.FromArgb(97, 97, 97);
-        public static Color Text3       => Dark ? Color.FromArgb(133, 133, 133): Color.FromArgb(120, 120, 120);
-        public static Color Accent      => Color.FromArgb(14, 99, 156);
-        public static Color AccentHover => Color.FromArgb(17, 119, 187);
-        public static Color Positive    => Color.FromArgb(34, 197, 94);
-        public static Color OnAccent    => Color.White;
+        // ---- VS Code inspired palette ----
+
+        public static Color TitleBar      => Dark ? Color.FromArgb(24, 24, 24)     : Color.FromArgb(221, 221, 221);
+        public static Color ActivityBar   => Dark ? Color.FromArgb(24, 24, 24)     : Color.FromArgb(44, 44, 44);
+        public static Color SideBar       => Dark ? Color.FromArgb(24, 24, 24)     : Color.FromArgb(243, 243, 243);
+        public static Color Editor        => Dark ? Color.FromArgb(31, 31, 31)     : Color.FromArgb(255, 255, 254);
+        public static Color TabStrip      => Dark ? Color.FromArgb(24, 24, 24)     : Color.FromArgb(236, 236, 236);
+        public static Color StatusBar     => Color.FromArgb(0, 122, 204);
+        public static Color StatusBarHover => Color.FromArgb(0, 95, 158);
+        public static Color Input         => Dark ? Color.FromArgb(49, 49, 49)     : Color.White;
+        public static Color Border        => Dark ? Color.FromArgb(60, 60, 60)     : Color.FromArgb(206, 206, 206);
+        public static Color PaneBorder    => Dark ? Color.FromArgb(43, 43, 43)     : Color.FromArgb(224, 224, 224);
+        public static Color Surface       => Dark ? Color.FromArgb(37, 37, 38)     : Color.White;
+        public static Color SurfaceMuted  => Dark ? Color.FromArgb(58, 58, 58)     : Color.FromArgb(232, 232, 232);
+        public static Color FocusBorder   => Color.FromArgb(0, 127, 212);
+        public static Color Text          => Dark ? Color.FromArgb(204, 204, 204)  : Color.FromArgb(51, 51, 51);
+        public static Color Text2         => Dark ? Color.FromArgb(157, 157, 157)  : Color.FromArgb(97, 97, 97);
+        public static Color Text3         => Dark ? Color.FromArgb(128, 128, 128)  : Color.FromArgb(120, 120, 120);
+        public static Color Accent        => Color.FromArgb(0, 122, 204);
+        public static Color AccentHover   => Color.FromArgb(0, 90, 158);
+        public static Color Positive      => Color.FromArgb(137, 209, 133);
+        public static Color OnAccent      => Color.White;
+        public static Color ActivityGlyph => Color.FromArgb(197, 197, 197);
+        public static Color StatusBarText => Color.White;
+
+        public static Color MapBackColor(Color color, bool fromDark)
+        {
+            if (color == TitleBarFor(fromDark)) return TitleBar;
+            if (color == ActivityBarFor(fromDark)) return ActivityBar;
+            if (color == SideBarFor(fromDark)) return SideBar;
+            if (color == EditorFor(fromDark)) return Editor;
+            if (color == TabStripFor(fromDark)) return TabStrip;
+            if (color == StatusBarFor(fromDark)) return StatusBar;
+            if (color == InputFor(fromDark)) return Input;
+            if (color == BorderFor(fromDark)) return Border;
+            if (color == PaneBorderFor(fromDark)) return PaneBorder;
+            if (color == SurfaceFor(fromDark)) return Surface;
+            if (color == SurfaceMutedFor(fromDark)) return SurfaceMuted;
+            if (color == Accent) return Accent;
+            if (color == StatusBarHover) return StatusBarHover;
+            return color;
+        }
+
+        public static Color MapForeColor(Color color, bool fromDark)
+        {
+            if (color == Color.White) return OnAccent;
+            if (color == StatusBarText) return StatusBarText;
+            if (color == TextFor(fromDark)) return Text;
+            if (color == Text2For(fromDark)) return Text2;
+            if (color == Text3For(fromDark)) return Text3;
+            if (color == Positive) return Positive;
+            if (color == ActivityGlyph) return ActivityGlyph;
+            return color;
+        }
+
+        public static Color MapBorderColor(Color color, bool fromDark)
+        {
+            if (color == BorderFor(fromDark)) return Border;
+            if (color == PaneBorderFor(fromDark)) return PaneBorder;
+            if (color == FocusBorder) return FocusBorder;
+            return color;
+        }
+
+        private static Color TitleBarFor(bool dark) => dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(221, 221, 221);
+        private static Color ActivityBarFor(bool dark) => dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(44, 44, 44);
+        private static Color SideBarFor(bool dark) => dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(243, 243, 243);
+        private static Color EditorFor(bool dark) => dark ? Color.FromArgb(31, 31, 31) : Color.FromArgb(255, 255, 254);
+        private static Color TabStripFor(bool dark) => dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(236, 236, 236);
+        private static Color StatusBarFor(bool dark) => Color.FromArgb(0, 122, 204);
+        private static Color InputFor(bool dark) => dark ? Color.FromArgb(49, 49, 49) : Color.White;
+        private static Color BorderFor(bool dark) => dark ? Color.FromArgb(60, 60, 60) : Color.FromArgb(206, 206, 206);
+        private static Color PaneBorderFor(bool dark) => dark ? Color.FromArgb(43, 43, 43) : Color.FromArgb(224, 224, 224);
+        private static Color SurfaceFor(bool dark) => dark ? Color.FromArgb(37, 37, 38) : Color.White;
+        private static Color SurfaceMutedFor(bool dark) => dark ? Color.FromArgb(58, 58, 58) : Color.FromArgb(232, 232, 232);
+        private static Color TextFor(bool dark) => dark ? Color.FromArgb(204, 204, 204) : Color.FromArgb(51, 51, 51);
+        private static Color Text2For(bool dark) => dark ? Color.FromArgb(157, 157, 157) : Color.FromArgb(97, 97, 97);
+        private static Color Text3For(bool dark) => dark ? Color.FromArgb(128, 128, 128) : Color.FromArgb(120, 120, 120);
+    }
+
+    internal sealed class UserSettings
+    {
+        public UserSettings() { }
+
+        public string Theme { get; set; } = "System";
+        public int StartModifiers { get; set; }
+        public int StartKey { get; set; } = (int)Keys.F8;
+        public int StopModifiers { get; set; }
+        public int StopKey { get; set; } = (int)Keys.F9;
+    }
+
+    internal static class HotkeyModifiers
+    {
+        public const int Alt = 0x0001;
+        public const int Control = 0x0002;
+        public const int Shift = 0x0004;
+        public const int NoRepeat = 0x4000;
+        public const int Supported = Alt | Control | Shift;
     }
 
     internal static class NativeMethods
@@ -175,17 +348,26 @@ namespace TYPR
 
     public class MainForm : Form
     {
+        private const int SidebarWidth = 272;
+        private const int ActivityBarWidth = 48;
+
         private readonly TextBox text = new TextBox();
         private readonly NumberInput cpm = new NumberInput();
         private readonly NumberInput startDelay = new NumberInput();
         private readonly Slider jitter = new Slider();
         private readonly Label jitterValue = new Label();
         private readonly ToggleCheckBox pressEnter = new ToggleCheckBox();
-        private readonly RoundedButton start = new RoundedButton();
-        private readonly RoundedButton stop = new RoundedButton();
+        private readonly RoundedButton start = new RoundedButton { CornerRadius = 6 };
+        private readonly RoundedButton stop = new RoundedButton { CornerRadius = 6 };
+        private readonly RoundedButton startHotkey = new RoundedButton { CornerRadius = 5 };
+        private readonly RoundedButton stopHotkey = new RoundedButton { CornerRadius = 5 };
         private readonly Label status = new Label();
         private readonly Label characterCount = new Label();
+        private readonly Label cpmIndicator = new Label();
         private readonly WindowCaptionButton maximizeButton = new WindowCaptionButton(WindowCaptionButtonKind.Maximize);
+        private readonly ActivityBarButton settingsButton = new ActivityBarButton(ActivityBarButtonKind.Settings);
+        private readonly ActivityBarButton themeToggleButton = new ActivityBarButton(ActivityBarButtonKind.ThemeToggle);
+        private Panel settingsView = null!;
         private CancellationTokenSource? cts;
         private readonly Random rng = new Random();
         private bool hotkeysRegistered;
@@ -203,19 +385,22 @@ namespace TYPR
         private const int HTBOTTOMLEFT = 16;
         private const int HTBOTTOMRIGHT = 17;
         private const int ResizeBorderWidth = 6;
-        private const int SettingsPanelWidth = 250;
 
         public MainForm()
         {
             Text = "TYPR";
             FormBorderStyle = FormBorderStyle.None;
-            ClientSize = new Size(980, 700);
-            MinimumSize = new Size(860, 686);
+            ClientSize = new Size(1020, 700);
+            MinimumSize = new Size(900, 640);
             StartPosition = FormStartPosition.CenterScreen;
-            BackColor = Theme.Page;
+            BackColor = Theme.TitleBar;
             Font = new Font("Segoe UI", UiTypography.Body);
             maximizeButton.Click += (_, __) => ToggleWindowState();
             Resize += (_, __) => maximizeButton.IsMaximized = WindowState == FormWindowState.Maximized;
+
+            themeToggleButton.IsDarkTheme = Theme.Dark;
+            themeToggleButton.Click += (_, __) => ToggleTheme();
+            settingsButton.IsActive = true;
 
             cpm.Minimum = 30;
             cpm.Maximum = 20000;
@@ -228,6 +413,7 @@ namespace TYPR
             jitter.Value = 5;
             jitter.ValueChanged += (_, __) => jitterValue.Text = jitter.Value + "%";
             jitterValue.Text = jitter.Value + "%";
+            cpm.ValueChanged += (_, __) => cpmIndicator.Text = $"{cpm.Value:N0} CPM";
 
             text.Multiline = true;
             text.AcceptsReturn = true;
@@ -240,51 +426,60 @@ namespace TYPR
             text.BorderStyle = BorderStyle.None;
             text.Dock = DockStyle.Fill;
             text.PlaceholderText = "Paste or type the text you want TYPR to type for you...";
-            text.TextChanged += (_, __) => characterCount.Text = $"{text.TextLength:N0} characters";
+            text.TextChanged += (_, __) => characterCount.Text = $"{text.TextLength:N0} chars";
 
             pressEnter.TabStop = false;
             pressEnter.Cursor = Cursors.Hand;
 
             start.Text = "Start typing";
-            start.AccessibleName = "Start typing (F8)";
-            start.Width = 132;
-            start.Height = 38;
+            start.AccessibleName = $"Start typing ({FormatHotkey(Theme.Settings.StartModifiers, Theme.Settings.StartKey)})";
             start.Click += StartButton_Click;
-            StylePrimaryButton(start);
 
             stop.Text = "Stop";
-            stop.AccessibleName = "Stop typing (F9)";
-            stop.Width = 86;
-            stop.Height = 38;
+            stop.AccessibleName = $"Stop typing ({FormatHotkey(Theme.Settings.StopModifiers, Theme.Settings.StopKey)})";
             stop.Enabled = false;
             stop.MouseUp += StopButton_MouseUp;
-            StyleSecondaryButton(stop);
 
-            status.Text = "Ready · focus target during countdown";
+            ConfigureHotkeyButton(startHotkey, "Start typing", Theme.Settings.StartModifiers, Theme.Settings.StartKey);
+            startHotkey.MouseUp += (_, e) =>
+            {
+                if (e.Button == MouseButtons.Left && startHotkey.ClientRectangle.Contains(e.Location))
+                    ChangeHotkey(true);
+            };
+            ConfigureHotkeyButton(stopHotkey, "Stop", Theme.Settings.StopModifiers, Theme.Settings.StopKey);
+            stopHotkey.MouseUp += (_, e) =>
+            {
+                if (e.Button == MouseButtons.Left && stopHotkey.ClientRectangle.Contains(e.Location))
+                    ChangeHotkey(false);
+            };
+
+            status.Text = "Ready — focus the target window during the countdown";
             status.AutoEllipsis = true;
-            status.Dock = DockStyle.Fill;
+            status.Dock = DockStyle.None;
+            status.Anchor = AnchorStyles.Left | AnchorStyles.Right;
             status.TextAlign = ContentAlignment.MiddleLeft;
             status.ForeColor = Theme.Text2;
+            status.Padding = Padding.Empty;
+            status.Margin = Padding.Empty;
 
-            var shell = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Theme.Page,
-                Padding = new Padding(UiSpacing.Large, UiSpacing.Large, UiSpacing.Large, 0),
-                Margin = Padding.Empty,
-                ColumnCount = 1,
-                RowCount = 2
-            };
-            shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
+            characterCount.Text = "0 chars";
+            characterCount.Dock = DockStyle.Fill;
+            characterCount.ForeColor = Theme.Text3;
+            characterCount.TextAlign = ContentAlignment.MiddleRight;
+            characterCount.Margin = Padding.Empty;
+            characterCount.Padding = Padding.Empty;
 
-            shell.Controls.Add(BuildMainContent(), 0, 0);
-            shell.Controls.Add(BuildFooter(), 0, 1);
+            cpmIndicator.Text = $"{cpm.Value:N0} CPM";
+            cpmIndicator.Dock = DockStyle.Fill;
+            cpmIndicator.ForeColor = Theme.Text3;
+            cpmIndicator.TextAlign = ContentAlignment.MiddleRight;
+            cpmIndicator.Margin = Padding.Empty;
+            cpmIndicator.Padding = Padding.Empty;
 
             var root = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Theme.Page,
+                BackColor = Theme.TitleBar,
                 ColumnCount = 1,
                 RowCount = 2,
                 Margin = Padding.Empty,
@@ -293,22 +488,348 @@ namespace TYPR
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.Controls.Add(BuildTitleBar(), 0, 0);
-            root.Controls.Add(shell, 0, 1);
+            root.Controls.Add(BuildContent(), 0, 1);
             Controls.Add(root);
+
+            UpdateThemeToggleButton();
         }
+
+        // ---------- Content layout ----------
+
+        private Control BuildContent()
+        {
+            var content = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 3,
+                RowCount = 1,
+                BackColor = Theme.Editor,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ActivityBarWidth));
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, SidebarWidth));
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            content.Controls.Add(BuildActivityBar(), 0, 0);
+            content.Controls.Add(BuildSidebar(), 1, 0);
+            content.Controls.Add(BuildEditorGroup(), 2, 0);
+            return content;
+        }
+
+        private Control BuildActivityBar()
+        {
+            var bar = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.ActivityBar,
+                ColumnCount = 1,
+                RowCount = 3,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+            bar.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            settingsButton.Margin = Padding.Empty;
+            bar.Controls.Add(settingsButton, 0, 0);
+
+            var bottom = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.ActivityBar,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+            bottom.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            bottom.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            themeToggleButton.Margin = Padding.Empty;
+            bottom.Controls.Add(themeToggleButton, 0, 0);
+            bottom.Controls.Add(new Panel { Dock = DockStyle.Fill, BackColor = Theme.ActivityBar, Margin = Padding.Empty }, 0, 1);
+            bar.Controls.Add(bottom, 0, 1);
+            return bar;
+        }
+
+        private Control BuildSidebar()
+        {
+            var sidebar = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.Editor,
+                Padding = new Padding(UiSpacing.XSmall, UiSpacing.Small, UiSpacing.Small, UiSpacing.XSmall),
+                Margin = Padding.Empty
+            };
+
+            var card = new RoundedPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.SideBar,
+                BorderColor = Theme.PaneBorder,
+                CornerRadius = 10,
+                Padding = new Padding(10),
+                Margin = Padding.Empty
+            };
+
+            var sidebarContent = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.SideBar,
+                Margin = Padding.Empty,
+                Padding = new Padding(UiSpacing.Large, 10, UiSpacing.Large, 0)
+            };
+            settingsView = BuildSettingsView();
+            settingsView.Dock = DockStyle.Fill;
+            sidebarContent.Controls.Add(settingsView);
+            card.Controls.Add(sidebarContent);
+            sidebar.Controls.Add(card);
+            return sidebar;
+        }
+
+        private static Label SectionHeader(string title)
+        {
+            return new Label
+            {
+                Text = title,
+                Dock = DockStyle.Fill,
+                ForeColor = Theme.Text3,
+                Font = new Font("Segoe UI", UiTypography.Caption, FontStyle.Bold),
+                TextAlign = ContentAlignment.BottomLeft,
+                Margin = new Padding(UiSpacing.XSmall, 0, 0, UiSpacing.XSmall)
+            };
+        }
+
+        private Panel BuildSettingsView()
+        {
+            var view = new Panel { BackColor = Theme.SideBar, Margin = Padding.Empty };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 13,
+                BackColor = Theme.SideBar,
+                Margin = Padding.Empty
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));   // TYPING header
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));   // speed
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));   // delay
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));   // jitter
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));   // divider
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));   // OPTIONS header
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));   // toggle row
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));   // divider
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));   // SHORTCUTS header
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));   // start row
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));   // stop row
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));   // hint
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            layout.Controls.Add(SectionHeader("TYPING"), 0, 0);
+            layout.Controls.Add(CreateSettingField("Typing speed (characters per minute)", cpm), 0, 1);
+            layout.Controls.Add(CreateSettingField("Start delay (seconds)", startDelay), 0, 2);
+            layout.Controls.Add(CreateSliderField("Typing variation — humanize pacing", jitter, jitterValue), 0, 3);
+            layout.Controls.Add(Divider(), 0, 4);
+
+            layout.Controls.Add(SectionHeader("OPTIONS"), 0, 5);
+            layout.Controls.Add(CreateToggleRow("Press Enter when finished"), 0, 6);
+            layout.Controls.Add(Divider(), 0, 7);
+
+            layout.Controls.Add(SectionHeader("SHORTCUTS"), 0, 8);
+            layout.Controls.Add(ShortcutRow("Start typing", startHotkey), 0, 9);
+            layout.Controls.Add(ShortcutRow("Stop typing", stopHotkey), 0, 10);
+
+            var hint = new Label
+            {
+                Text = "Click a shortcut to rebind it.",
+                Dock = DockStyle.Fill,
+                ForeColor = Theme.Text3,
+                Font = new Font("Segoe UI", UiTypography.Body),
+                TextAlign = ContentAlignment.TopLeft,
+                Margin = new Padding(UiSpacing.XSmall, UiSpacing.Small, 0, 0)
+            };
+            layout.Controls.Add(hint, 0, 11);
+
+            view.Controls.Add(layout);
+            return view;
+        }
+
+        private Control BuildEditorGroup()
+        {
+            var group = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = Theme.Editor,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+            group.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
+            group.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            group.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            group.Controls.Add(BuildTabStrip(), 0, 0);
+            group.Controls.Add(BuildEditorSurface(), 0, 1);
+            group.Controls.Add(BuildEditorActions(), 0, 2);
+            return group;
+        }
+
+        private Control BuildEditorActions()
+        {
+            var actions = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 5,
+                RowCount = 1,
+                BackColor = Theme.Editor,
+                Margin = Padding.Empty,
+                Padding = new Padding(UiSpacing.Medium, UiSpacing.Small, UiSpacing.Medium, UiSpacing.Small)
+            };
+            actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124));
+
+            var statusItem = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = Theme.Editor,
+                Margin = new Padding(0, 0, UiSpacing.Small, 0),
+                Padding = Padding.Empty
+            };
+            statusItem.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 18));
+            statusItem.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            statusItem.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+            statusItem.Controls.Add(new Label
+            {
+                Text = "●",
+                Dock = DockStyle.Fill,
+                ForeColor = Theme.Positive,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            }, 0, 0);
+            statusItem.Controls.Add(status, 1, 0);
+            actions.Controls.Add(statusItem, 0, 0);
+
+            characterCount.Margin = new Padding(UiSpacing.Small, 0, UiSpacing.Small, 0);
+            actions.Controls.Add(characterCount, 1, 0);
+            cpmIndicator.Margin = new Padding(UiSpacing.Small, 0, UiSpacing.Small, 0);
+            actions.Controls.Add(cpmIndicator, 2, 0);
+
+            stop.Text = "Stop";
+            stop.Dock = DockStyle.Fill;
+            stop.Margin = new Padding(UiSpacing.Small, 0, UiSpacing.Small, 0);
+            StyleEditorStopButton(stop);
+            actions.Controls.Add(stop, 3, 0);
+
+            start.Text = "Start typing";
+            start.Dock = DockStyle.Fill;
+            start.Margin = new Padding(UiSpacing.Small, 0, UiSpacing.Small, 0);
+            StyleEditorStartButton(start);
+            actions.Controls.Add(start, 4, 0);
+            return actions;
+        }
+
+        private Control BuildTabStrip()
+        {
+            var strip = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.TabStrip,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+            strip.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+            strip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            var activeTab = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.Editor,
+                Margin = Padding.Empty,
+                Padding = new Padding(UiSpacing.Medium, 0, 0, 0)
+            };
+            var tabLabel = new Label
+            {
+                Text = "untitled.txt",
+                Dock = DockStyle.Fill,
+                ForeColor = Theme.Text,
+                Font = new Font("Segoe UI", UiTypography.Body),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = Padding.Empty
+            };
+            activeTab.Controls.Add(tabLabel);
+            activeTab.Controls.Add(new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = Theme.Accent,
+                Margin = Padding.Empty
+            });
+            strip.Controls.Add(activeTab, 0, 0);
+
+            var rest = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.TabStrip,
+                Margin = Padding.Empty
+            };
+            rest.Controls.Add(new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = Theme.PaneBorder,
+                Margin = Padding.Empty
+            });
+            strip.Controls.Add(rest, 1, 0);
+            return strip;
+        }
+
+        private Control BuildEditorSurface()
+        {
+            var surfaceHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.Editor,
+                Padding = new Padding(UiSpacing.XSmall),
+                Margin = Padding.Empty
+            };
+            var surface = new RoundedPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.Editor,
+                BorderColor = Theme.PaneBorder,
+                CornerRadius = 10,
+                Padding = new Padding(UiSpacing.Large, UiSpacing.Medium, UiSpacing.Large, UiSpacing.Small),
+                Margin = Padding.Empty
+            };
+            surface.Controls.Add(text);
+            surfaceHost.Controls.Add(surface);
+            return surfaceHost;
+        }
+
+        // ---------- Title bar ----------
 
         private Control BuildTitleBar()
         {
             var titleBar = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Theme.Surface,
+                BackColor = Theme.TitleBar,
                 ColumnCount = 3,
                 RowCount = 1,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty
             };
-            titleBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+            titleBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220));
             titleBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             titleBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 138));
 
@@ -317,17 +838,16 @@ namespace TYPR
                 Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
-                BackColor = Theme.Surface,
+                BackColor = Theme.TitleBar,
                 Padding = new Padding(UiSpacing.Medium, 0, 0, 0),
                 Margin = Padding.Empty
             };
-            var icon = new RoundedPanel
+            var icon = new Panel
             {
                 BackColor = Theme.Accent,
-                CornerRadius = 2,
-                Width = 18,
-                Height = 18,
-                Margin = new Padding(0, 9, UiSpacing.Small, 0)
+                Width = 16,
+                Height = 16,
+                Margin = new Padding(0, 10, UiSpacing.Small, 0)
             };
             icon.Controls.Add(new Label
             {
@@ -335,41 +855,42 @@ namespace TYPR
                 Dock = DockStyle.Fill,
                 BackColor = Theme.Accent,
                 ForeColor = Theme.OnAccent,
-                Font = new Font("Segoe UI", UiTypography.Body, FontStyle.Bold),
+                Font = new Font("Segoe UI", 8f, FontStyle.Bold),
                 TextAlign = ContentAlignment.MiddleCenter
             });
             var appName = new Label
             {
                 Text = "TYPR",
                 AutoSize = false,
-                Width = 54,
+                Width = 40,
                 Height = 36,
                 ForeColor = Theme.Text,
                 Font = new Font("Segoe UI", UiTypography.Body, FontStyle.Bold),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = Padding.Empty
             };
-            identity.Controls.Add(icon);
-            identity.Controls.Add(appName);
-            titleBar.Controls.Add(identity, 0, 0);
-
-            var title = new Label
+            var subtitle = new Label
             {
-                Text = "Text input",
-                Dock = DockStyle.Fill,
+                Text = "— auto typer",
+                AutoSize = false,
+                Width = 100,
+                Height = 36,
                 ForeColor = Theme.Text3,
                 Font = new Font("Segoe UI", UiTypography.Body),
-                TextAlign = ContentAlignment.MiddleCenter,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Margin = Padding.Empty
             };
-            titleBar.Controls.Add(title, 1, 0);
+            identity.Controls.Add(icon);
+            identity.Controls.Add(appName);
+            identity.Controls.Add(subtitle);
+            titleBar.Controls.Add(identity, 0, 0);
 
             var windowButtons = new FlowLayoutPanel
             {
                 Dock = DockStyle.Right,
                 Width = 138,
                 Height = 36,
-                BackColor = Theme.Surface,
+                BackColor = Theme.TitleBar,
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
                 Margin = Padding.Empty,
@@ -389,11 +910,11 @@ namespace TYPR
             identity.MouseDown += TitleBar_MouseDown;
             icon.MouseDown += TitleBar_MouseDown;
             appName.MouseDown += TitleBar_MouseDown;
-            title.MouseDown += TitleBar_MouseDown;
+            subtitle.MouseDown += TitleBar_MouseDown;
             titleBar.DoubleClick += TitleBar_DoubleClick;
             identity.DoubleClick += TitleBar_DoubleClick;
             appName.DoubleClick += TitleBar_DoubleClick;
-            title.DoubleClick += TitleBar_DoubleClick;
+            subtitle.DoubleClick += TitleBar_DoubleClick;
             return titleBar;
         }
 
@@ -492,240 +1013,7 @@ namespace TYPR
             }
         }
 
-        // ---------- Main ----------
-
-        private Control BuildMainContent()
-        {
-            var content = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
-                BackColor = Theme.Page,
-                Margin = Padding.Empty
-            };
-            content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            content.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, SettingsPanelWidth));
-
-            content.Controls.Add(BuildEditorCard(), 0, 0);
-            content.Controls.Add(BuildSettingsCard(), 1, 0);
-            return content;
-        }
-
-        private Control BuildEditorCard()
-        {
-            var card = CreateCard();
-            card.Margin = new Padding(UiSpacing.XSmall);
-
-            var layout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 2,
-                BackColor = Theme.Surface,
-                Margin = Padding.Empty
-            };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-            var head = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
-                BackColor = Theme.Surface,
-                Margin = new Padding(0, 0, 0, UiSpacing.Small)
-            };
-            head.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            head.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
-            head.Controls.Add(new Label
-            {
-                Text = "Your text",
-                Dock = DockStyle.Fill,
-                ForeColor = Theme.Text,
-                Font = new Font("Segoe UI", UiTypography.Section, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Margin = Padding.Empty
-            }, 0, 0);
-            characterCount.Text = "0 characters";
-            characterCount.Dock = DockStyle.Fill;
-            characterCount.ForeColor = Theme.Text3;
-            characterCount.TextAlign = ContentAlignment.MiddleRight;
-            characterCount.Margin = Padding.Empty;
-            head.Controls.Add(characterCount, 1, 0);
-            layout.Controls.Add(head, 0, 0);
-
-            var editorSurface = new RoundedPanel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Theme.Editor,
-                BorderColor = Theme.Border,
-                CornerRadius = UiSpacing.Small,
-                Padding = new Padding(UiSpacing.Medium),
-                Margin = Padding.Empty
-            };
-            editorSurface.Controls.Add(text);
-            layout.Controls.Add(editorSurface, 0, 1);
-            card.Controls.Add(layout);
-            return card;
-        }
-
-        private Control BuildSettingsCard()
-        {
-            var card = CreateCard();
-            card.Margin = new Padding(UiSpacing.XSmall);
-
-            var settings = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 12,
-                BackColor = Theme.Surface,
-                Margin = Padding.Empty
-            };
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 9));
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 9));
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-            settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-            settings.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-            settings.Controls.Add(new Label
-            {
-                Text = "Typing settings",
-                Dock = DockStyle.Fill,
-                ForeColor = Theme.Text,
-                Font = new Font("Segoe UI", UiTypography.Header, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Margin = Padding.Empty
-            }, 0, 0);
-            settings.Controls.Add(new Label
-            {
-                Text = "Tune the pace to your needs.",
-                Dock = DockStyle.Fill,
-                ForeColor = Theme.Text3,
-                Font = new Font("Segoe UI", UiTypography.Body),
-                TextAlign = ContentAlignment.TopLeft,
-                Margin = Padding.Empty
-            }, 0, 1);
-
-            settings.Controls.Add(CreateSettingField("Typing speed", cpm, "CPM"), 0, 2);
-            settings.Controls.Add(CreateSettingField("Start delay", startDelay, "sec"), 0, 3);
-            settings.Controls.Add(CreateSliderField("Typing variation", jitter, jitterValue, "humanize"), 0, 4);
-            settings.Controls.Add(Divider(), 0, 5);
-
-            var switchRow = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false,
-                BackColor = Theme.Surface,
-                Margin = Padding.Empty,
-                Padding = Padding.Empty
-            };
-            var switchLabel = new Label
-            {
-                Text = "Press Enter when finished",
-                AutoSize = true,
-                BackColor = Theme.Surface,
-                ForeColor = Theme.Text,
-                Font = new Font("Segoe UI", UiTypography.Body),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(0, UiSpacing.Small, UiSpacing.Small, 0)
-            };
-            switchRow.Controls.Add(switchLabel);
-            pressEnter.Width = 42;
-            pressEnter.Height = 34;
-            pressEnter.Margin = Padding.Empty;
-            switchRow.Controls.Add(pressEnter);
-            settings.Controls.Add(switchRow, 0, 6);
-            settings.Controls.Add(Divider(), 0, 7);
-
-            settings.Controls.Add(new Label
-            {
-                Text = "SHORTCUTS",
-                Dock = DockStyle.Fill,
-                ForeColor = Theme.Text3,
-                Font = new Font("Segoe UI", UiTypography.Caption, FontStyle.Bold),
-                TextAlign = ContentAlignment.BottomLeft,
-                Margin = Padding.Empty
-            }, 0, 8);
-            settings.Controls.Add(ShortcutRow("Start typing", "F8"), 0, 9);
-            settings.Controls.Add(ShortcutRow("Stop", "F9"), 0, 10);
-
-            card.Controls.Add(settings);
-            return card;
-        }
-
-        // ---------- Footer ----------
-
-        private Control BuildFooter()
-        {
-            var footer = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 3,
-                RowCount = 1,
-                BackColor = Theme.Page,
-                Margin = Padding.Empty,
-                Padding = Padding.Empty
-            };
-            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
-            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
-
-            var statusLine = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
-                BackColor = Theme.Page,
-                Margin = Padding.Empty
-            };
-            statusLine.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 18));
-            statusLine.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            statusLine.Controls.Add(new Label
-            {
-                Text = "●",
-                Dock = DockStyle.Fill,
-                ForeColor = Theme.Positive,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Margin = Padding.Empty
-            }, 0, 0);
-            statusLine.Controls.Add(status, 1, 0);
-            footer.Controls.Add(statusLine, 0, 0);
-
-            stop.Anchor = AnchorStyles.Top;
-            stop.Margin = new Padding(0, UiSpacing.Medium, 0, 0);
-            footer.Controls.Add(stop, 1, 0);
-
-            start.Anchor = AnchorStyles.Top;
-            start.Margin = new Padding(0, UiSpacing.Medium, 0, 0);
-            footer.Controls.Add(start, 2, 0);
-            return footer;
-        }
-
         // ---------- Building blocks ----------
-
-        private static RoundedPanel CreateCard()
-        {
-            return new RoundedPanel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Theme.Surface,
-                BorderColor = Theme.PaneBorder,
-                CornerRadius = 10,
-                Padding = new Padding(
-                    UiSpacing.Large, UiSpacing.Medium, UiSpacing.Large, UiSpacing.Large),
-                Margin = Padding.Empty
-            };
-        }
 
         private static Control Divider()
         {
@@ -733,22 +1021,23 @@ namespace TYPR
             {
                 Dock = DockStyle.Fill,
                 BackColor = Theme.PaneBorder,
-                Margin = new Padding(0, UiSpacing.XSmall, 0, UiSpacing.XSmall)
+                Margin = new Padding(UiSpacing.XSmall, UiSpacing.XSmall, UiSpacing.XSmall, UiSpacing.XSmall)
             };
         }
 
-        private Control CreateSettingField(string title, NumberInput input, string unit)
+        private Control CreateSettingField(string title, NumberInput input)
         {
             var field = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Theme.Surface,
+                BackColor = Theme.SideBar,
                 ColumnCount = 1,
-                RowCount = 2,
-                Margin = Padding.Empty
+                RowCount = 3,
+                Margin = new Padding(UiSpacing.XSmall, 0, UiSpacing.XSmall, UiSpacing.XSmall)
             };
             field.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
-            field.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            field.RowStyles.Add(new RowStyle(SizeType.Absolute, UiSpacing.Small));
+            field.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
             field.Controls.Add(new Label
             {
                 Text = title,
@@ -758,45 +1047,24 @@ namespace TYPR
                 TextAlign = ContentAlignment.BottomLeft,
                 Margin = Padding.Empty
             }, 0, 0);
-            var line = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
-                BackColor = Theme.Surface,
-                Margin = Padding.Empty
-            };
-            line.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            line.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 48));
             input.Dock = DockStyle.Fill;
-            line.Controls.Add(input, 0, 0);
-            line.Controls.Add(new Label
-            {
-                Text = unit,
-                Dock = DockStyle.Fill,
-                ForeColor = Theme.Text3,
-                Font = new Font("Segoe UI", UiTypography.Caption),
-                AutoSize = false,
-                AutoEllipsis = true,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(UiSpacing.Small, 0, 0, 0)
-            }, 1, 0);
-            field.Controls.Add(line, 0, 1);
+            input.Margin = Padding.Empty;
+            field.Controls.Add(input, 0, 2);
             return field;
         }
 
-        private Control CreateSliderField(string title, Slider slider, Label valueLabel, string hint)
+        private Control CreateSliderField(string title, Slider slider, Label valueLabel)
         {
             var field = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Theme.Surface,
+                BackColor = Theme.SideBar,
                 ColumnCount = 1,
                 RowCount = 2,
-                Margin = Padding.Empty
+                Margin = new Padding(UiSpacing.XSmall, 0, UiSpacing.XSmall, UiSpacing.XSmall)
             };
-            field.RowStyles.Add(new RowStyle(SizeType.Absolute, 19));
-            field.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            field.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+            field.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             field.Controls.Add(new Label
             {
                 Text = title,
@@ -811,7 +1079,7 @@ namespace TYPR
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
                 RowCount = 1,
-                BackColor = Theme.Surface,
+                BackColor = Theme.SideBar,
                 Margin = new Padding(0, UiSpacing.XSmall, 0, 0)
             };
             line.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -821,7 +1089,7 @@ namespace TYPR
             line.Controls.Add(slider, 0, 0);
             valueLabel.Dock = DockStyle.Fill;
             valueLabel.ForeColor = Theme.Text;
-            valueLabel.Font = new Font("Segoe UI", UiTypography.Body, FontStyle.Regular);
+            valueLabel.Font = new Font("Segoe UI", UiTypography.Body);
             valueLabel.TextAlign = ContentAlignment.MiddleRight;
             valueLabel.Margin = new Padding(UiSpacing.Small, 0, UiSpacing.XSmall, 0);
             line.Controls.Add(valueLabel, 1, 0);
@@ -829,71 +1097,134 @@ namespace TYPR
             return field;
         }
 
-        private static Control ShortcutRow(string caption, string key)
+        private Control CreateToggleRow(string caption)
         {
             var row = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
                 RowCount = 1,
-                BackColor = Theme.Surface,
-                Margin = Padding.Empty
+                BackColor = Theme.SideBar,
+                Margin = new Padding(UiSpacing.XSmall, 0, UiSpacing.XSmall, 0)
             };
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 40));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
             row.Controls.Add(new Label
             {
                 Text = caption,
                 Dock = DockStyle.Fill,
-                ForeColor = Theme.Text2,
+                ForeColor = Theme.Text,
                 Font = new Font("Segoe UI", UiTypography.Body),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = Padding.Empty
             }, 0, 0);
-
-            var kbd = new RoundedPanel
-            {
-                BackColor = Theme.SurfaceMuted,
-                BorderColor = Theme.Border,
-                CornerRadius = 2,
-                Dock = DockStyle.None,
-                Width = 32,
-                Height = 21,
-                Anchor = AnchorStyles.Right,
-                Margin = new Padding(0, UiSpacing.XSmall, UiSpacing.XSmall, 0)
-            };
-            kbd.Controls.Add(new Label
-            {
-                Text = key,
-                Dock = DockStyle.Fill,
-                ForeColor = Theme.Text2,
-                BackColor = Theme.SurfaceMuted,
-                Font = new Font("Segoe UI", UiTypography.Caption),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Margin = Padding.Empty
-            });
-            row.Controls.Add(kbd, 1, 0);
+            pressEnter.Width = 40;
+            pressEnter.Height = 22;
+            pressEnter.Margin = new Padding(0, UiSpacing.Small, UiSpacing.XSmall, 0);
+            row.Controls.Add(pressEnter, 1, 0);
             return row;
         }
 
-        private static void StylePrimaryButton(RoundedButton button)
+        private static Control ShortcutRow(string caption, RoundedButton key)
         {
-            button.BackColor = Theme.Accent;
-            button.ForeColor = Theme.OnAccent;
-            button.Font = new Font("Segoe UI", UiTypography.Body, FontStyle.Bold);
-            button.Margin = Padding.Empty;
-            button.Cursor = Cursors.Hand;
-            button.HoverTint = Theme.AccentHover;
-            button.DownTint = Theme.AccentHover;
+            var row = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = Theme.SideBar,
+                Margin = new Padding(UiSpacing.XSmall, UiSpacing.XSmall, UiSpacing.XSmall, 0)
+            };
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
+            key.Dock = DockStyle.Fill;
+            key.Margin = new Padding(0, 2, 0, 2);
+            row.Controls.Add(new Label
+            {
+                Text = caption,
+                Dock = DockStyle.Fill,
+                ForeColor = Theme.Text,
+                Font = new Font("Segoe UI", UiTypography.Body, FontStyle.Regular),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = Padding.Empty
+            }, 0, 0);
+            row.Controls.Add(key, 1, 0);
+            return row;
         }
 
-        private static void StyleSecondaryButton(RoundedButton button)
+        private static void ConfigureHotkeyButton(RoundedButton button, string name, int modifiers, int key)
         {
-            button.BackColor = Theme.Surface;
-            button.ForeColor = Theme.Text2;
+            button.CornerRadius = 5;
+            StyleKeycapButton(button);
+            UpdateHotkeyButton(button, name, modifiers, key);
+        }
+
+        private static void UpdateHotkeyButton(RoundedButton button, string name, int modifiers, int key)
+        {
+            button.Text = FormatHotkey(modifiers, key);
+            button.AccessibleName = $"{name} hotkey: {button.Text}. Click to change.";
+        }
+
+        private static string FormatHotkey(int modifiers, int keyValue)
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            if ((modifiers & HotkeyModifiers.Control) != 0) parts.Add("Ctrl");
+            if ((modifiers & HotkeyModifiers.Alt) != 0) parts.Add("Alt");
+            if ((modifiers & HotkeyModifiers.Shift) != 0) parts.Add("Shift");
+
+            var key = (Keys)keyValue;
+            string keyName = key switch
+            {
+                Keys.OemPeriod => ".",
+                Keys.Oemcomma => ",",
+                Keys.OemQuestion => "/",
+                Keys.OemMinus => "-",
+                Keys.Oemplus => "=",
+                Keys.OemOpenBrackets => "[",
+                Keys.OemCloseBrackets => "]",
+                Keys.OemPipe => "\\",
+                Keys.OemSemicolon => ";",
+                Keys.OemQuotes => "'",
+                Keys.Oemtilde => "`",
+                Keys.Space => "Space",
+                _ when key >= Keys.D0 && key <= Keys.D9 => key.ToString().Substring(1),
+                _ => key.ToString()
+            };
+            parts.Add(keyName);
+            return string.Join("+", parts);
+        }
+
+        private static void StyleEditorStartButton(RoundedButton button)
+        {
+            button.CornerRadius = 6;
+            button.BackColor = Theme.Accent;
+            button.ForeColor = Theme.OnAccent;
+            button.BorderColor = Color.Transparent;
+            button.Font = new Font("Segoe UI", UiTypography.Body, FontStyle.Bold);
+            button.Cursor = Cursors.Hand;
+            button.HoverTint = Theme.StatusBarHover;
+            button.DownTint = Color.FromArgb(0, 80, 134);
+        }
+
+        private static void StyleEditorStopButton(RoundedButton button)
+        {
+            button.CornerRadius = 6;
+            button.BackColor = Theme.Input;
+            button.ForeColor = Theme.Text;
             button.BorderColor = Theme.Border;
             button.Font = new Font("Segoe UI", UiTypography.Body, FontStyle.Bold);
-            button.Margin = Padding.Empty;
+            button.Cursor = Cursors.Hand;
+            button.HoverTint = Theme.SurfaceMuted;
+            button.DownTint = Theme.Border;
+        }
+
+        private static void StyleKeycapButton(RoundedButton button)
+        {
+            button.CornerRadius = 5;
+            button.BackColor = Theme.Input;
+            button.ForeColor = Theme.Text;
+            button.BorderColor = Theme.Border;
+            button.Font = new Font("Segoe UI", UiTypography.Body, FontStyle.Bold);
             button.Cursor = Cursors.Hand;
             button.HoverTint = Theme.SurfaceMuted;
             button.DownTint = Theme.Border;
@@ -910,7 +1241,7 @@ namespace TYPR
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            NativeMethods.SetWindowAppearance(Handle, Theme.PaneBorder);
+            NativeMethods.SetWindowAppearance(Handle, Theme.TitleBar);
             TryRegisterHotKeys();
         }
 
@@ -920,20 +1251,31 @@ namespace TYPR
             base.OnHandleDestroyed(e);
         }
 
-        private void TryRegisterHotKeys()
+        private bool TryRegisterHotKeys()
         {
-            if (hotkeysRegistered || IsDisposed || Handle == IntPtr.Zero) return;
+            if (hotkeysRegistered) return true;
+            if (IsDisposed || Handle == IntPtr.Zero) return false;
 
-            bool startOk = NativeMethods.RegisterHotKey(Handle, HOTKEY_START, 0, (uint)Keys.F8);
-            bool stopOk = NativeMethods.RegisterHotKey(Handle, HOTKEY_STOP, 0, (uint)Keys.F9);
+            bool startOk = NativeMethods.RegisterHotKey(
+                Handle,
+                HOTKEY_START,
+                (uint)(Theme.Settings.StartModifiers | HotkeyModifiers.NoRepeat),
+                (uint)Theme.Settings.StartKey);
+            bool stopOk = NativeMethods.RegisterHotKey(
+                Handle,
+                HOTKEY_STOP,
+                (uint)(Theme.Settings.StopModifiers | HotkeyModifiers.NoRepeat),
+                (uint)Theme.Settings.StopKey);
             hotkeysRegistered = startOk && stopOk;
 
             if (!hotkeysRegistered)
             {
                 status.Text = "Shortcuts unavailable — use the buttons.";
-                if (!startOk) NativeMethods.UnregisterHotKey(Handle, HOTKEY_START);
-                if (!stopOk) NativeMethods.UnregisterHotKey(Handle, HOTKEY_STOP);
+                if (startOk) NativeMethods.UnregisterHotKey(Handle, HOTKEY_START);
+                if (stopOk) NativeMethods.UnregisterHotKey(Handle, HOTKEY_STOP);
             }
+
+            return hotkeysRegistered;
         }
 
         private void TryUnregisterHotKeys()
@@ -956,6 +1298,204 @@ namespace TYPR
                 StopTyping();
         }
 
+        private void ChangeHotkey(bool isStart)
+        {
+            TryUnregisterHotKeys();
+            using var dialog = new Form
+            {
+                Text = isStart ? "Set start hotkey" : "Set stop hotkey",
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                ClientSize = new Size(360, 116),
+                MinimizeBox = false,
+                MaximizeBox = false,
+                ShowInTaskbar = false,
+                KeyPreview = true,
+                BackColor = Theme.SideBar,
+                ForeColor = Theme.Text,
+                Font = new Font("Segoe UI", UiTypography.Body)
+            };
+            var instruction = new Label
+            {
+                Text = "Press a key combination (for example Ctrl + .). Esc cancels.",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = Theme.Text,
+                Padding = new Padding(UiSpacing.Medium)
+            };
+            dialog.Controls.Add(instruction);
+
+            int newModifiers = 0;
+            int newKey = 0;
+            dialog.KeyDown += (_, e) =>
+            {
+                e.SuppressKeyPress = true;
+                if (e.KeyCode == Keys.Escape)
+                {
+                    dialog.DialogResult = DialogResult.Cancel;
+                    dialog.Close();
+                    return;
+                }
+
+                if (IsModifierKey(e.KeyCode))
+                {
+                    instruction.Text = "Hold Ctrl, Alt, or Shift, then press a key. Esc cancels.";
+                    return;
+                }
+
+                newModifiers = ToHotkeyModifiers(e.Modifiers);
+                newKey = (int)e.KeyCode;
+                dialog.DialogResult = DialogResult.OK;
+                dialog.Close();
+            };
+
+            DialogResult result;
+            try
+            {
+                result = dialog.ShowDialog(this);
+            }
+            catch
+            {
+                TryRegisterHotKeys();
+                throw;
+            }
+
+            if (result != DialogResult.OK)
+            {
+                TryRegisterHotKeys();
+                return;
+            }
+            if (newModifiers == 0 && ((Keys)newKey < Keys.F1 || (Keys)newKey > Keys.F24))
+            {
+                TryRegisterHotKeys();
+                MessageBox.Show(this, "Use a modifier with regular keys so the shortcut does not intercept normal typing.",
+                    "TYPR - modifier required", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (isStart
+                ? newKey == Theme.Settings.StopKey && newModifiers == Theme.Settings.StopModifiers
+                : newKey == Theme.Settings.StartKey && newModifiers == Theme.Settings.StartModifiers)
+            {
+                TryRegisterHotKeys();
+                MessageBox.Show(this, "Start and stop shortcuts must be different.", "TYPR - shortcut already in use",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            int oldKey = isStart ? Theme.Settings.StartKey : Theme.Settings.StopKey;
+            int oldModifiers = isStart ? Theme.Settings.StartModifiers : Theme.Settings.StopModifiers;
+            if (isStart)
+            {
+                Theme.Settings.StartKey = newKey;
+                Theme.Settings.StartModifiers = newModifiers;
+            }
+            else
+            {
+                Theme.Settings.StopKey = newKey;
+                Theme.Settings.StopModifiers = newModifiers;
+            }
+
+            if (!TryRegisterHotKeys())
+            {
+                if (isStart)
+                {
+                    Theme.Settings.StartKey = oldKey;
+                    Theme.Settings.StartModifiers = oldModifiers;
+                }
+                else
+                {
+                    Theme.Settings.StopKey = oldKey;
+                    Theme.Settings.StopModifiers = oldModifiers;
+                }
+
+                TryRegisterHotKeys();
+                MessageBox.Show(this, "Windows could not register that shortcut. It may already be in use.",
+                    "TYPR - shortcut unavailable", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            UpdateHotkeyButton(startHotkey, "Start typing", Theme.Settings.StartModifiers, Theme.Settings.StartKey);
+            UpdateHotkeyButton(stopHotkey, "Stop", Theme.Settings.StopModifiers, Theme.Settings.StopKey);
+            start.AccessibleName = $"Start typing ({startHotkey.Text})";
+            stop.AccessibleName = $"Stop typing ({stopHotkey.Text})";
+            Theme.SaveSettings();
+            status.Text = $"Shortcuts updated — {startHotkey.Text} starts, {stopHotkey.Text} stops.";
+        }
+
+        private static bool IsModifierKey(Keys key)
+        {
+            return key == Keys.ControlKey || key == Keys.ShiftKey || key == Keys.Menu;
+        }
+
+        private static int ToHotkeyModifiers(Keys modifiers)
+        {
+            int result = 0;
+            if ((modifiers & Keys.Control) != 0) result |= HotkeyModifiers.Control;
+            if ((modifiers & Keys.Alt) != 0) result |= HotkeyModifiers.Alt;
+            if ((modifiers & Keys.Shift) != 0) result |= HotkeyModifiers.Shift;
+            return result;
+        }
+
+        // ---------- Theme ----------
+
+        private void ToggleTheme()
+        {
+            bool previousDark = Theme.Dark;
+            Theme.SetMode(previousDark ? "Light" : "Dark");
+            ApplyTheme(this, previousDark);
+            if (IsHandleCreated) NativeMethods.SetWindowAppearance(Handle, Theme.TitleBar);
+            Theme.SaveSettings();
+            UpdateThemeToggleButton();
+        }
+
+        private void UpdateThemeToggleButton()
+        {
+            themeToggleButton.IsDarkTheme = Theme.Dark;
+            themeToggleButton.AccessibleName = Theme.Dark
+                ? "Dark mode. Click to switch to light mode."
+                : "Light mode. Click to switch to dark mode.";
+            themeToggleButton.Invalidate();
+        }
+
+        private void ApplyTheme(Control root, bool previousDark)
+        {
+            ApplyThemeToControl(root, previousDark);
+            cpm.ApplyTheme();
+            startDelay.ApplyTheme();
+            themeToggleButton.IsDarkTheme = Theme.Dark;
+            Invalidate(true);
+        }
+
+        private void ApplyThemeToControl(Control control, bool previousDark)
+        {
+            bool isEditorSurface = ReferenceEquals(control, text);
+            if (!isEditorSurface)
+                control.BackColor = Theme.MapBackColor(control.BackColor, previousDark);
+            control.ForeColor = Theme.MapForeColor(control.ForeColor, previousDark);
+
+            if (control is RoundedPanel panel)
+                panel.BorderColor = Theme.MapBorderColor(panel.BorderColor, previousDark);
+
+            if (control is RoundedButton button)
+            {
+                button.BorderColor = Theme.MapBorderColor(button.BorderColor, previousDark);
+                button.HoverTint = Theme.MapBackColor(button.HoverTint, previousDark);
+                button.DownTint = Theme.MapBackColor(button.DownTint, previousDark);
+            }
+
+            if (control is TextBox input)
+            {
+                input.BackColor = ReferenceEquals(input, text) ? Theme.Editor : Theme.Input;
+                input.ForeColor = Theme.Text;
+            }
+
+            foreach (Control child in control.Controls)
+                ApplyThemeToControl(child, previousDark);
+
+            if (isEditorSurface) control.BackColor = Theme.Editor;
+            control.Invalidate();
+        }
+
         // ---------- Typing engine (unchanged) ----------
 
         private async Task StartTypingAsync()
@@ -976,7 +1516,7 @@ namespace TYPR
                     await Task.Delay(1000, cts.Token);
                 }
 
-                status.Text = "Typing... F9 to stop.";
+                status.Text = $"Typing... {FormatHotkey(Theme.Settings.StopModifiers, Theme.Settings.StopKey)} to stop.";
                 double baseDelayMs = 60000.0 / (double)cpm.Value;
                 double jitterPct = (double)jitter.Value / 100.0;
 
@@ -1064,12 +1604,6 @@ namespace TYPR
             }
         }
 
-        protected override void OnResize(EventArgs e)
-        {
-            base.OnResize(e);
-            Region = CreateRegion(ClientRectangle, CornerRadius);
-        }
-
         public static System.Drawing.Drawing2D.GraphicsPath CreatePath(Rectangle bounds, int radius)
         {
             var path = new System.Drawing.Drawing2D.GraphicsPath();
@@ -1093,19 +1627,13 @@ namespace TYPR
             return path;
         }
 
-        public static Region CreateRegion(Rectangle bounds, int radius)
-        {
-            using (var path = CreatePath(bounds, radius))
-            {
-                return new Region(path);
-            }
-        }
     }
 
     internal sealed class RoundedButton : Button
     {
         private bool hovered;
 
+        public int CornerRadius { get; set; } = 2;
         public Color BorderColor { get; set; } = Color.Transparent;
         public Color HoverTint { get; set; }
         public Color DownTint { get; set; }
@@ -1121,10 +1649,9 @@ namespace TYPR
 
         protected override bool ShowFocusCues => false;
 
-        protected override void OnResize(EventArgs e)
+        protected override void OnPaintBackground(PaintEventArgs e)
         {
-            base.OnResize(e);
-            Region = RoundedPanel.CreateRegion(ClientRectangle, 2);
+            e.Graphics.Clear(Parent?.BackColor ?? BackColor);
         }
 
         protected override void OnMouseEnter(EventArgs e)
@@ -1147,7 +1674,7 @@ namespace TYPR
             var bounds = ClientRectangle;
             bounds.Width--;
             bounds.Height--;
-            using (var path = RoundedPanel.CreatePath(bounds, 2))
+            using (var path = RoundedPanel.CreatePath(bounds, CornerRadius))
             {
                 Color fill;
                 if (!Enabled) fill = Theme.SurfaceMuted;
@@ -1162,9 +1689,17 @@ namespace TYPR
                     using (var pen = new Pen(BorderColor))
                         e.Graphics.DrawPath(pen, path);
 
-                TextRenderer.DrawText(e.Graphics, Text, Font, bounds,
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    Text,
+                    Font,
+                    bounds,
                     Enabled ? ForeColor : Theme.Text3,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+                    TextFormatFlags.HorizontalCenter |
+                    TextFormatFlags.VerticalCenter |
+                    TextFormatFlags.SingleLine |
+                    TextFormatFlags.NoPrefix |
+                    TextFormatFlags.EndEllipsis);
             }
         }
     }
@@ -1175,7 +1710,7 @@ namespace TYPR
 
         public ToggleCheckBox()
         {
-            BackColor = Theme.Surface;
+            BackColor = Theme.SideBar;
             TabStop = false;
             Cursor = Cursors.Hand;
             AccessibleRole = AccessibleRole.CheckButton;
@@ -1187,9 +1722,9 @@ namespace TYPR
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            var track = new Rectangle(2, Math.Max(2, (Height - 20) / 2), 36, 20);
+            var track = new Rectangle(0, Math.Max(0, (Height - 20) / 2), 38, 20);
             using (var path = RoundedPanel.CreatePath(track, 10))
-            using (var fill = new SolidBrush(Checked ? Theme.Accent : Theme.SurfaceMuted))
+            using (var fill = new SolidBrush(Checked ? Theme.Accent : Theme.Input))
             {
                 e.Graphics.FillPath(fill, path);
             }
@@ -1198,7 +1733,7 @@ namespace TYPR
                 using (var pen = new Pen(Theme.Border))
                     e.Graphics.DrawPath(pen, path);
 
-            int thumbX = Checked ? 20 : 4;
+            int thumbX = Checked ? 21 : 3;
             using (var thumb = new SolidBrush(Checked ? Theme.OnAccent : Theme.Text3))
             {
                 e.Graphics.FillEllipse(thumb, thumbX, track.Y + 3, 14, 14);
@@ -1216,6 +1751,8 @@ namespace TYPR
     internal sealed class NumberInput : UserControl
     {
         private readonly TextBox input = new TextBox();
+
+        public event EventHandler? ValueChanged;
         private readonly RoundedPanel frame;
         private decimal value;
         private decimal minimum;
@@ -1247,39 +1784,58 @@ namespace TYPR
             set => SetValue(value);
         }
 
+        public void ApplyTheme()
+        {
+            BackColor = Theme.SideBar;
+            frame.BackColor = Theme.Input;
+            frame.BorderColor = Theme.Border;
+            input.BackColor = Theme.Input;
+            input.ForeColor = Theme.Text;
+            foreach (Control child in frame.Controls)
+            {
+                child.BackColor = Theme.Input;
+                foreach (Control nested in child.Controls)
+                    nested.BackColor = Theme.Input;
+            }
+            Invalidate(true);
+        }
+
         public NumberInput()
         {
-            BackColor = Theme.Surface;
-            Height = 38;
-            MinimumSize = new Size(90, 38);
+            BackColor = Theme.SideBar;
+            Height = 28;
+            MinimumSize = new Size(90, 28);
 
             frame = new RoundedPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Theme.Input,
                 BorderColor = Theme.Border,
-                CornerRadius = 2,
-                Padding = new Padding(UiSpacing.Small, UiSpacing.XSmall, UiSpacing.XSmall, UiSpacing.XSmall),
+                CornerRadius = 6,
+                Padding = new Padding(UiSpacing.Medium, 2, UiSpacing.Small, 2),
                 Margin = Padding.Empty
             };
-            var layout = new TableLayoutPanel
+            var inputHost = new Panel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 1,
                 BackColor = frame.BackColor,
                 Margin = Padding.Empty
             };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-            input.Dock = DockStyle.Fill;
             input.BorderStyle = BorderStyle.None;
             input.BackColor = frame.BackColor;
             input.ForeColor = Theme.Text;
             input.Font = new Font("Segoe UI", UiTypography.Control);
             input.TextAlign = HorizontalAlignment.Left;
             input.Text = "0";
-            input.Margin = new Padding(0, UiSpacing.XSmall, 0, 0);
+            input.Margin = Padding.Empty;
+            input.Dock = DockStyle.None;
+            input.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            input.Height = input.PreferredHeight;
+            inputHost.Resize += (_, __) =>
+            {
+                input.Width = inputHost.ClientSize.Width;
+                input.Top = Math.Max(0, (inputHost.ClientSize.Height - input.Height) / 2);
+            };
             input.GotFocus += (_, __) => frame.BorderColor = Theme.FocusBorder;
             input.LostFocus += (_, __) => frame.BorderColor = Theme.Border;
             input.KeyPress += (_, e) =>
@@ -1293,8 +1849,8 @@ namespace TYPR
                 if (e.KeyCode == Keys.Enter) { CommitInput(); e.Handled = true; }
             };
             input.Leave += (_, __) => CommitInput();
-            layout.Controls.Add(input, 0, 0);
-            frame.Controls.Add(layout);
+            inputHost.Controls.Add(input);
+            frame.Controls.Add(inputHost);
             Controls.Add(frame);
         }
 
@@ -1308,6 +1864,7 @@ namespace TYPR
         {
             value = Math.Max(minimum, Math.Min(maximum, next));
             input.Text = value.ToString();
+            ValueChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -1348,7 +1905,7 @@ namespace TYPR
 
         public Slider()
         {
-            Height = 34;
+            Height = 32;
             TabStop = true;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
@@ -1359,7 +1916,7 @@ namespace TYPR
 
         protected override void OnPaintBackground(PaintEventArgs e)
         {
-            e.Graphics.Clear(Theme.Surface);
+            e.Graphics.Clear(Theme.SideBar);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -1371,7 +1928,7 @@ namespace TYPR
             int trackY = Height / 2 - 2;
             var track = new Rectangle(pad, trackY, Math.Max(1, Width - pad * 2), 4);
             using (var path = RoundedPanel.CreatePath(track, 2))
-            using (var brush = new SolidBrush(Theme.SurfaceMuted))
+            using (var brush = new SolidBrush(Theme.Input))
                 g.FillPath(brush, path);
 
             int fillWidth = (int)(track.Width * Fraction);
@@ -1386,16 +1943,10 @@ namespace TYPR
             int thumbX = track.X + fillWidth;
             int thumbR = 7;
             var thumbRect = new Rectangle(thumbX - thumbR, Height / 2 - thumbR, thumbR * 2, thumbR * 2);
-            using (var brush = new SolidBrush(hovered || dragging || Focused ? Theme.Text : Theme.Surface))
+            using (var brush = new SolidBrush(hovered || dragging || Focused ? Theme.Text2 : Theme.Text3))
                 g.FillEllipse(brush, thumbRect);
             using (var pen = new Pen(Theme.Border))
                 g.DrawEllipse(pen, thumbRect);
-        }
-
-        protected override void OnResize(EventArgs e)
-        {
-            base.OnResize(e);
-            Region = RoundedPanel.CreateRegion(ClientRectangle, 9);
         }
 
         protected override void OnMouseEnter(EventArgs e)
@@ -1479,7 +2030,7 @@ namespace TYPR
             Dock = DockStyle.None;
             Width = 46;
             Height = 36;
-            BackColor = Theme.Surface;
+            BackColor = Theme.TitleBar;
             ForeColor = Theme.Text;
             Cursor = Cursors.Hand;
             Margin = Padding.Empty;
@@ -1505,14 +2056,16 @@ namespace TYPR
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            Color hoverBg = Theme.Dark ? Color.FromArgb(74, 74, 74) : Color.FromArgb(202, 202, 202);
             Color background = hovered
                 ? Kind == WindowCaptionButtonKind.Close
                     ? Color.FromArgb(196, 43, 28)
-                    : Theme.SurfaceMuted
+                    : hoverBg
                 : BackColor;
-            Color glyph = hovered && Kind == WindowCaptionButtonKind.Close ? Color.White : Theme.Text;
+            Color glyph = hovered && Kind == WindowCaptionButtonKind.Close ? Color.White : ForeColor;
             using (var brush = new SolidBrush(background))
                 e.Graphics.FillRectangle(brush, ClientRectangle);
+
             using (var pen = new Pen(glyph, 1.6f))
             {
                 int cx = Width / 2;
@@ -1538,6 +2091,114 @@ namespace TYPR
                 }
             }
             base.OnPaint(e);
+        }
+    }
+
+    internal enum ActivityBarButtonKind
+    {
+        Settings,
+        ThemeToggle
+    }
+
+    internal sealed class ActivityBarButton : Control
+    {
+        private bool hovered;
+
+        public ActivityBarButtonKind Kind { get; }
+        public bool IsActive { get; set; }
+        public bool IsDarkTheme { get; set; }
+
+        public ActivityBarButton(ActivityBarButtonKind kind)
+        {
+            Kind = kind;
+            Dock = DockStyle.None;
+            Width = 48;
+            Height = 48;
+            BackColor = Theme.ActivityBar;
+            Cursor = Cursors.Hand;
+            Margin = Padding.Empty;
+            TabStop = false;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            hovered = true;
+            Invalidate();
+            base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            hovered = false;
+            Invalidate();
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            Color bg = hovered ? Color.FromArgb(62, 62, 62) : BackColor;
+            using (var brush = new SolidBrush(bg))
+                g.FillRectangle(brush, ClientRectangle);
+
+            if (IsActive)
+                using (var brush = new SolidBrush(Color.White))
+                    g.FillRectangle(brush, new Rectangle(0, 0, 2, Height));
+
+            Color glyph = IsActive ? Color.White : Theme.ActivityGlyph;
+            int cx = Width / 2;
+            int cy = Height / 2;
+
+            if (Kind == ActivityBarButtonKind.Settings) DrawGear(g, glyph, cx, cy);
+            else DrawThemeGlyph(g, glyph, bg, cx, cy);
+
+            base.OnPaint(e);
+        }
+
+        private static void DrawGear(Graphics g, Color color, int cx, int cy)
+        {
+            using var pen = new Pen(color, 1.6f);
+            using var brush = new SolidBrush(color);
+            g.DrawEllipse(pen, cx - 8, cy - 8, 16, 16);
+            g.FillEllipse(brush, cx - 2, cy - 2, 4, 4);
+            for (int angle = 0; angle < 360; angle += 45)
+            {
+                double radians = angle * Math.PI / 180.0;
+                int x1 = cx + (int)Math.Round(Math.Cos(radians) * 8);
+                int y1 = cy + (int)Math.Round(Math.Sin(radians) * 8);
+                int x2 = cx + (int)Math.Round(Math.Cos(radians) * 12);
+                int y2 = cy + (int)Math.Round(Math.Sin(radians) * 12);
+                g.DrawLine(pen, x1, y1, x2, y2);
+            }
+        }
+
+        private void DrawThemeGlyph(Graphics g, Color color, Color background, int cx, int cy)
+        {
+            using var pen = new Pen(color, 1.5f);
+            using var brush = new SolidBrush(color);
+
+            if (IsDarkTheme)
+            {
+                g.FillEllipse(brush, cx - 8, cy - 8, 16, 16);
+                using var cutout = new SolidBrush(background);
+                g.FillEllipse(cutout, cx - 2, cy - 11, 15, 15);
+                return;
+            }
+
+            for (int angle = 0; angle < 360; angle += 45)
+            {
+                double radians = angle * Math.PI / 180.0;
+                int x1 = cx + (int)Math.Round(Math.Cos(radians) * 9);
+                int y1 = cy + (int)Math.Round(Math.Sin(radians) * 9);
+                int x2 = cx + (int)Math.Round(Math.Cos(radians) * 12);
+                int y2 = cy + (int)Math.Round(Math.Sin(radians) * 12);
+                g.DrawLine(pen, x1, y1, x2, y2);
+            }
+            g.FillEllipse(brush, cx - 5, cy - 5, 10, 10);
         }
     }
 
