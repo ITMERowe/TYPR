@@ -2141,14 +2141,14 @@ namespace TYPR
             {
                 const int diameter = 24;
                 int centerX = Width / 2;
-                int centerY = Height / 2;
+                int centerY = Height / 2 + 2; // moved slightly lower to match reference image
                 var bounds = new Rectangle(centerX - diameter / 2, centerY - diameter / 2, diameter, diameter);
                 using var hoverFill = new SolidBrush(Color.FromArgb(hoverOpacity, Theme.SurfaceMuted));
                 e.Graphics.FillEllipse(hoverFill, bounds);
             }
 
-            // Draw the '+' glyph manually (two centered strokes) to guarantee pixel-perfect centering.
-            int cx = Width / 2;
+            // Draw the '+' glyph manually, shifted right to better align with the hover circle.
+            int cx = Width / 2 + 2; // moved slightly to the right
             int cy = Height / 2;
             int halfLength = 6; // half-length of each arm in pixels; tuned for visual balance at 28x28 control
             using (var pen = new Pen(ForeColor, 2f))
