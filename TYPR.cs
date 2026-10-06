@@ -96,6 +96,21 @@ namespace TYPR
                         : (int)Keys.F9;
                     settings.StopModifiers = 0;
                 }
+                if (settings.TextTemplates == null || settings.TextTemplates.Count == 0)
+                    settings.TextTemplates = new List<TextTemplate> { new TextTemplate { Name = "Text 1" } };
+                for (int i = 0; i < settings.TextTemplates.Count; i++)
+                {
+                    settings.TextTemplates[i] ??= new TextTemplate { Name = $"Text {i + 1}" };
+                    if (string.IsNullOrWhiteSpace(settings.TextTemplates[i].Name))
+                        settings.TextTemplates[i].Name = $"Text {i + 1}";
+                    else if (settings.TextTemplates[i].Name.StartsWith("Template ", StringComparison.OrdinalIgnoreCase) &&
+                        int.TryParse(settings.TextTemplates[i].Name.AsSpan("Template ".Length), out _))
+                        settings.TextTemplates[i].Name =
+                            $"Text {settings.TextTemplates[i].Name["Template ".Length..]}";
+                    settings.TextTemplates[i].Text ??= string.Empty;
+                }
+                settings.ActiveTextTemplate = Math.Clamp(
+                    settings.ActiveTextTemplate, 0, settings.TextTemplates.Count - 1);
                 return settings;
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException)
@@ -141,8 +156,10 @@ namespace TYPR
         public static Color TitleBar      => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(221, 221, 221);
         public static Color ActivityBar   => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(44, 44, 44);
         public static Color SideBar       => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(243, 243, 243);
-        public static Color Editor        => Dark ? Color.FromArgb(18, 19, 20)     : Color.FromArgb(255, 255, 254);
-        public static Color TabStrip      => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(236, 236, 236);
+        public static Color Editor        => Dark ? Color.FromArgb(17, 17, 17)     : Color.FromArgb(255, 255, 255);
+        public static Color TabStrip      => Dark ? Color.FromArgb(24, 24, 24)     : Color.FromArgb(243, 243, 243);
+        public static Color ActiveTab     => Editor;
+        public static Color TabContainer  => Color.FromArgb(25, 26, 27);
         public static Color StatusBar     => Color.FromArgb(0, 122, 204);
         public static Color StatusBarHover => Color.FromArgb(0, 95, 158);
         public static Color Input         => Dark ? Color.FromArgb(49, 49, 49)     : Color.White;
@@ -168,6 +185,7 @@ namespace TYPR
             if (color == SideBarFor(fromDark)) return SideBar;
             if (color == EditorFor(fromDark)) return Editor;
             if (color == TabStripFor(fromDark)) return TabStrip;
+            if (color == ActiveTabFor(fromDark)) return ActiveTab;
             if (color == StatusBarFor(fromDark)) return StatusBar;
             if (color == InputFor(fromDark)) return Input;
             if (color == BorderFor(fromDark)) return Border;
@@ -202,8 +220,9 @@ namespace TYPR
         private static Color TitleBarFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(221, 221, 221);
         private static Color ActivityBarFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(44, 44, 44);
         private static Color SideBarFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(243, 243, 243);
-        private static Color EditorFor(bool dark) => dark ? Color.FromArgb(18, 19, 20) : Color.FromArgb(255, 255, 254);
-        private static Color TabStripFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(236, 236, 236);
+        private static Color EditorFor(bool dark) => dark ? Color.FromArgb(17, 17, 17) : Color.FromArgb(255, 255, 255);
+        private static Color TabStripFor(bool dark) => dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(243, 243, 243);
+        private static Color ActiveTabFor(bool dark) => dark ? Color.FromArgb(30, 30, 30) : Color.White;
         private static Color StatusBarFor(bool dark) => Color.FromArgb(0, 122, 204);
         private static Color InputFor(bool dark) => dark ? Color.FromArgb(49, 49, 49) : Color.White;
         private static Color BorderFor(bool dark) => dark ? Color.FromArgb(60, 60, 60) : Color.FromArgb(206, 206, 206);
@@ -224,6 +243,14 @@ namespace TYPR
         public int StartKey { get; set; } = (int)Keys.F8;
         public int StopModifiers { get; set; }
         public int StopKey { get; set; } = (int)Keys.F9;
+        public List<TextTemplate> TextTemplates { get; set; } = new();
+        public int ActiveTextTemplate { get; set; }
+    }
+
+    internal sealed class TextTemplate
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Text { get; set; } = string.Empty;
     }
 
     internal static class HotkeyModifiers
@@ -280,6 +307,41 @@ namespace TYPR
             public UIntPtr dwExtraInfo;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int X;
+            public int Y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MINMAXINFO
+        {
+            public POINT Reserved;
+            public POINT MaxSize;
+            public POINT MaxPosition;
+            public POINT MinTrackSize;
+            public POINT MaxTrackSize;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private struct MONITORINFO
+        {
+            public int Size;
+            public RECT Monitor;
+            public RECT Work;
+            public uint Flags;
+        }
+
         [DllImport("user32.dll", SetLastError = true)]
         public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
@@ -295,6 +357,12 @@ namespace TYPR
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         public static extern IntPtr SendMessage(IntPtr hWnd, int message, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
+
         [DllImport("dwmapi.dll", PreserveSig = true)]
         private static extern int DwmSetWindowAttribute(
             IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
@@ -305,6 +373,21 @@ namespace TYPR
 
             SetDwmWindowAttribute(handle, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
             SetDwmWindowAttribute(handle, DWMWA_BORDER_COLOR, ColorTranslator.ToWin32(borderColor));
+        }
+
+        public static MINMAXINFO GetMaximizedWorkArea(IntPtr handle, MINMAXINFO info)
+        {
+            const uint MONITOR_DEFAULTTONEAREST = 2;
+            IntPtr monitor = MonitorFromWindow(handle, MONITOR_DEFAULTTONEAREST);
+            var monitorInfo = new MONITORINFO { Size = Marshal.SizeOf<MONITORINFO>() };
+            if (!GetMonitorInfo(monitor, ref monitorInfo))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+
+            info.MaxPosition.X = monitorInfo.Work.Left - monitorInfo.Monitor.Left;
+            info.MaxPosition.Y = monitorInfo.Work.Top - monitorInfo.Monitor.Top;
+            info.MaxSize.X = monitorInfo.Work.Right - monitorInfo.Work.Left;
+            info.MaxSize.Y = monitorInfo.Work.Bottom - monitorInfo.Work.Top;
+            return info;
         }
 
         private static void SetDwmWindowAttribute(IntPtr handle, int attribute, int value)
@@ -367,11 +450,16 @@ namespace TYPR
         private readonly WindowCaptionButton maximizeButton = new WindowCaptionButton(WindowCaptionButtonKind.Maximize);
         private readonly ActivityBarButton settingsButton = new ActivityBarButton(ActivityBarButtonKind.Settings);
         private readonly ActivityBarButton themeToggleButton = new ActivityBarButton(ActivityBarButtonKind.ThemeToggle);
+        private readonly System.Windows.Forms.Timer templateSaveTimer = new System.Windows.Forms.Timer { Interval = 400 };
+        private readonly AddTextButton addTemplateButton = new AddTextButton();
         private Control? windowContent;
+        private TemplateFlowLayoutPanel templateTabs = null!;
+        private EditorFramePanel? editorFrame;
         private Panel settingsView = null!;
         private CancellationTokenSource? cts;
         private readonly Random rng = new Random();
         private bool hotkeysRegistered;
+        private bool loadingTemplate;
 
         private const int HOTKEY_START = 1;
         private const int HOTKEY_STOP = 2;
@@ -433,7 +521,20 @@ namespace TYPR
             text.BorderStyle = BorderStyle.None;
             text.Dock = DockStyle.Fill;
             text.PlaceholderText = "Paste or type the text you want TYPR to type for you...";
-            text.TextChanged += (_, __) => characterCount.Text = $"{text.TextLength:N0} chars";
+            text.TextChanged += (_, __) =>
+            {
+                characterCount.Text = $"{text.TextLength:N0} chars";
+                if (loadingTemplate) return;
+                ActiveTemplate.Text = text.Text;
+                templateSaveTimer.Stop();
+                templateSaveTimer.Start();
+            };
+            templateSaveTimer.Tick += (_, __) =>
+            {
+                templateSaveTimer.Stop();
+                SaveActiveTemplate();
+                Theme.SaveSettings();
+            };
 
             pressEnter.TabStop = false;
             pressEnter.Cursor = Cursors.Hand;
@@ -475,6 +576,10 @@ namespace TYPR
             characterCount.TextAlign = ContentAlignment.MiddleRight;
             characterCount.Margin = Padding.Empty;
             characterCount.Padding = Padding.Empty;
+            loadingTemplate = true;
+            text.Text = ActiveTemplate.Text;
+            loadingTemplate = false;
+            characterCount.Text = $"{text.TextLength:N0} chars";
 
             cpmIndicator.Text = $"{cpm.Value:N0} CPM";
             cpmIndicator.Dock = DockStyle.Fill;
@@ -498,6 +603,13 @@ namespace TYPR
             root.Controls.Add(BuildContent(), 0, 1);
             Controls.Add(root);
             windowContent = root;
+            FormClosed += (_, __) =>
+            {
+                templateSaveTimer.Stop();
+                SaveActiveTemplate();
+                Theme.SaveSettings();
+                templateSaveTimer.Dispose();
+            };
 
             UpdateThemeToggleButton();
         }
@@ -665,16 +777,18 @@ namespace TYPR
 
         private Control BuildEditorGroup()
         {
-            var group = new TableLayoutPanel
+            var group = new EditorGroupPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 3,
                 BackColor = Theme.Editor,
+                BorderColor = Color.Transparent,
+                CornerRadius = 10,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty
             };
-            group.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
+            group.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
             group.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             group.RowStyles.Add(new RowStyle(SizeType.Absolute, 53));
             group.Controls.Add(BuildTabStrip(), 0, 0);
@@ -746,59 +860,256 @@ namespace TYPR
 
         private Control BuildTabStrip()
         {
-            var strip = new TableLayoutPanel
+            var strip = new TabContainerPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Theme.TabStrip,
-                ColumnCount = 2,
-                RowCount = 1,
-                Margin = Padding.Empty,
+                BackColor = Theme.TabContainer,
+                BorderColor = Theme.PaneBorder,
+                Margin = new Padding(4, 8, 8, 0),
                 Padding = Padding.Empty
             };
-            strip.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
-            strip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            var activeTab = new Panel
+            templateTabs = new TemplateFlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Theme.Editor,
+                AutoScroll = true,
+                WrapContents = false,
+                FlowDirection = FlowDirection.LeftToRight,
+                BackColor = Theme.TabContainer,
                 Margin = Padding.Empty,
-                Padding = new Padding(UiSpacing.Medium, 0, 0, 0)
+                Padding = Padding.Empty,
+                BorderColor = Theme.PaneBorder
             };
-            var tabLabel = new Label
-            {
-                Text = "untitled.txt",
-                Dock = DockStyle.Fill,
-                ForeColor = Theme.Text,
-                Font = new Font("Segoe UI", UiTypography.Body),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Margin = Padding.Empty
-            };
-            activeTab.Controls.Add(tabLabel);
-            activeTab.Controls.Add(new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 1,
-                BackColor = Theme.Accent,
-                Margin = Padding.Empty
-            });
-            strip.Controls.Add(activeTab, 0, 0);
+            templateTabs.Dock = DockStyle.Fill;
+            addTemplateButton.Text = "+";
+            addTemplateButton.AccessibleName = "Add text";
+            addTemplateButton.AccessibleRole = AccessibleRole.PushButton;
+            addTemplateButton.Size = new Size(28, 28);
+            addTemplateButton.Margin = new Padding(2, 1, 2, 1);
+            addTemplateButton.BackColor = Color.Transparent;
+            addTemplateButton.ForeColor = Theme.Text2;
+            addTemplateButton.Font = new Font("Segoe UI", 16f);
+            addTemplateButton.TextAlign = ContentAlignment.MiddleCenter;
+            addTemplateButton.Cursor = Cursors.Hand;
+            addTemplateButton.TabStop = false;
+            addTemplateButton.Click += (_, __) => AddTextTemplate();
 
-            var rest = new Panel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Theme.TabStrip,
-                Margin = Padding.Empty
-            };
-            rest.Controls.Add(new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 1,
-                BackColor = Theme.PaneBorder,
-                Margin = Padding.Empty
-            });
-            strip.Controls.Add(rest, 1, 0);
+            strip.Controls.Add(templateTabs);
+            RefreshTemplateTabs();
             return strip;
+        }
+
+        private void RefreshTemplateTabs()
+        {
+            if (templateTabs == null) return;
+            templateTabs.SuspendLayout();
+            templateTabs.Controls.Remove(addTemplateButton);
+            while (templateTabs.Controls.Count > 0)
+            {
+                Control control = templateTabs.Controls[0];
+                templateTabs.Controls.RemoveAt(0);
+                control.Dispose();
+            }
+
+            for (int i = 0; i < Theme.Settings.TextTemplates.Count; i++)
+            {
+                int templateIndex = i;
+                bool isActive = i == Theme.Settings.ActiveTextTemplate;
+                var tab = new EditorTabPanel
+                {
+                    Text = Theme.Settings.TextTemplates[i].Name,
+                    Width = 152,
+                    Height = 36,
+                    BackColor = isActive ? Theme.ActiveTab : Theme.TabContainer,
+                    IsActive = isActive,
+                    BorderColor = Theme.PaneBorder,
+                    CornerRadius = 6,
+                    ForeColor = isActive ? Theme.Text : Theme.Text2,
+                    Font = new Font("Segoe UI", UiTypography.Body),
+                    Margin = Padding.Empty,
+                    Padding = Padding.Empty,
+                    Cursor = Cursors.Hand,
+                    AccessibleRole = AccessibleRole.PageTab,
+                    AccessibleName = $"{Theme.Settings.TextTemplates[i].Name}, text tab. Double-click to rename; close button deletes it."
+                };
+                tab.Click += (_, __) => SelectTextTemplate(templateIndex);
+                tab.CloseRequested += (_, __) => DeleteTextTemplate(templateIndex);
+                tab.RenameRequested += (_, __) => RenameTextTemplate(templateIndex);
+                templateTabs.Controls.Add(tab);
+                tab.Enabled = cts == null;
+            }
+            templateTabs.Controls.Add(addTemplateButton);
+            addTemplateButton.Enabled = cts == null;
+            templateTabs.ResumeLayout(true);
+        }
+
+        private TextTemplate ActiveTemplate =>
+            Theme.Settings.TextTemplates[Theme.Settings.ActiveTextTemplate];
+
+        private void SaveActiveTemplate()
+        {
+            if (Theme.Settings.TextTemplates.Count == 0) return;
+            Theme.Settings.ActiveTextTemplate = Math.Clamp(
+                Theme.Settings.ActiveTextTemplate, 0, Theme.Settings.TextTemplates.Count - 1);
+            ActiveTemplate.Text = text.Text;
+        }
+
+        private void SelectTextTemplate(int index)
+        {
+            if (cts != null)
+            {
+                status.Text = "Stop typing before switching text tabs.";
+                return;
+            }
+            if (index < 0 || index >= Theme.Settings.TextTemplates.Count ||
+                index == Theme.Settings.ActiveTextTemplate)
+                return;
+
+            templateSaveTimer.Stop();
+            SaveActiveTemplate();
+            Theme.Settings.ActiveTextTemplate = index;
+            loadingTemplate = true;
+            text.Text = ActiveTemplate.Text;
+            loadingTemplate = false;
+            characterCount.Text = $"{text.TextLength:N0} chars";
+            RefreshTemplateTabs();
+            Theme.SaveSettings();
+            text.Focus();
+        }
+
+        private void DeleteTextTemplate(int index)
+        {
+            if (cts != null)
+            {
+                status.Text = "Stop typing before deleting text.";
+                return;
+            }
+
+            if (Theme.Settings.TextTemplates.Count <= 1)
+            {
+                status.Text = "At least one text tab must remain.";
+                return;
+            }
+
+            templateSaveTimer.Stop();
+            SaveActiveTemplate();
+            int activeIndex = Theme.Settings.ActiveTextTemplate;
+            Theme.Settings.TextTemplates.RemoveAt(index);
+
+            if (index < activeIndex)
+                Theme.Settings.ActiveTextTemplate = activeIndex - 1;
+            else if (index == activeIndex)
+                Theme.Settings.ActiveTextTemplate = Math.Min(index, Theme.Settings.TextTemplates.Count - 1);
+
+            if (index == activeIndex)
+            {
+                loadingTemplate = true;
+                text.Text = ActiveTemplate.Text;
+                loadingTemplate = false;
+                characterCount.Text = $"{text.TextLength:N0} chars";
+            }
+
+            RefreshTemplateTabs();
+            Theme.SaveSettings();
+            text.Focus();
+        }
+
+        private void RenameTextTemplate(int index)
+        {
+            if (cts != null || index < 0 || index >= Theme.Settings.TextTemplates.Count)
+                return;
+
+            using var dialog = new Form
+            {
+                Text = "Rename text",
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                ClientSize = new Size(340, 112),
+                MinimizeBox = false,
+                MaximizeBox = false,
+                ShowInTaskbar = false,
+                BackColor = Theme.SideBar,
+                ForeColor = Theme.Text,
+                Font = new Font("Segoe UI", UiTypography.Body)
+            };
+            var nameInput = new TextBox
+            {
+                Text = Theme.Settings.TextTemplates[index].Name,
+                Location = new Point(12, 12),
+                Width = 316,
+                MaxLength = 80,
+                BackColor = Theme.Input,
+                ForeColor = Theme.Text,
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            var saveButton = new Button
+            {
+                Text = "Save",
+                Location = new Point(172, 64),
+                Size = new Size(75, 30)
+            };
+            var cancelButton = new Button
+            {
+                Text = "Cancel",
+                DialogResult = DialogResult.Cancel,
+                Location = new Point(253, 64),
+                Size = new Size(75, 30)
+            };
+            dialog.Controls.Add(nameInput);
+            dialog.Controls.Add(saveButton);
+            dialog.Controls.Add(cancelButton);
+            dialog.AcceptButton = saveButton;
+            dialog.CancelButton = cancelButton;
+            saveButton.Click += (_, __) =>
+            {
+                if (string.IsNullOrWhiteSpace(nameInput.Text))
+                {
+                    status.Text = "Text name cannot be empty.";
+                    nameInput.Focus();
+                    return;
+                }
+                dialog.DialogResult = DialogResult.OK;
+            };
+
+            if (dialog.ShowDialog(this) != DialogResult.OK)
+                return;
+
+            string name = nameInput.Text.Trim();
+            Theme.Settings.TextTemplates[index].Name = name;
+            RefreshTemplateTabs();
+            Theme.SaveSettings();
+        }
+
+        private void AddTextTemplate()
+        {
+            if (cts != null)
+            {
+                status.Text = "Stop typing before adding text.";
+                return;
+            }
+
+            templateSaveTimer.Stop();
+            SaveActiveTemplate();
+            var template = new TextTemplate
+            {
+                Name = $"Text {Theme.Settings.TextTemplates.Count + 1}"
+            };
+            Theme.Settings.TextTemplates.Add(template);
+            Theme.Settings.ActiveTextTemplate = Theme.Settings.TextTemplates.Count - 1;
+            loadingTemplate = true;
+            text.Clear();
+            loadingTemplate = false;
+            characterCount.Text = "0 chars";
+            RefreshTemplateTabs();
+            Theme.SaveSettings();
+            text.Focus();
+        }
+
+        private void SetTemplateTabsEnabled(bool enabled)
+        {
+            addTemplateButton.Enabled = enabled;
+            foreach (Control tab in templateTabs.Controls)
+                tab.Enabled = enabled;
         }
 
         private Control BuildEditorSurface()
@@ -807,10 +1118,10 @@ namespace TYPR
             {
                 Dock = DockStyle.Fill,
                 BackColor = Theme.Editor,
-                Padding = new Padding(4, 8, 8, 4),
+                Padding = new Padding(4, 0, 8, 4),
                 Margin = Padding.Empty
             };
-            var surface = new RoundedPanel
+            editorFrame = new EditorFramePanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Theme.Editor,
@@ -819,8 +1130,8 @@ namespace TYPR
                 Padding = new Padding(UiSpacing.Large, UiSpacing.Medium, UiSpacing.Large, UiSpacing.Small),
                 Margin = Padding.Empty
             };
-            surface.Controls.Add(text);
-            surfaceHost.Controls.Add(surface);
+            editorFrame.Controls.Add(text);
+            surfaceHost.Controls.Add(editorFrame);
             return surfaceHost;
         }
 
@@ -952,8 +1263,18 @@ namespace TYPR
             const int WM_NCPAINT = 0x0085;
             const int WM_NCACTIVATE = 0x0086;
             const int WM_NCHITTEST = 0x0084;
+            const int WM_GETMINMAXINFO = 0x0024;
             const int HTCLIENT = 1;
             const int HTNOWHERE = 0;
+
+            if (m.Msg == WM_GETMINMAXINFO)
+            {
+                base.WndProc(ref m);
+                var info = Marshal.PtrToStructure<NativeMethods.MINMAXINFO>(m.LParam);
+                info = NativeMethods.GetMaximizedWorkArea(Handle, info);
+                Marshal.StructureToPtr(info, m.LParam, false);
+                return;
+            }
 
             if (m.Msg == WM_NCCALCSIZE)
             {
@@ -1484,6 +1805,24 @@ namespace TYPR
             if (control is RoundedPanel panel)
                 panel.BorderColor = Theme.MapBorderColor(panel.BorderColor, previousDark);
 
+            if (control is TabContainerPanel tabContainer)
+            {
+                tabContainer.BackColor = Theme.TabContainer;
+                tabContainer.BorderColor = Theme.PaneBorder;
+            }
+
+            if (control is TemplateFlowLayoutPanel templateFlow)
+                templateFlow.BorderColor = Theme.MapBorderColor(templateFlow.BorderColor, previousDark);
+
+            if (control is EditorTabPanel editorTab)
+            {
+                editorTab.BorderColor = Theme.MapBorderColor(editorTab.BorderColor, previousDark);
+                editorTab.BackColor = editorTab.IsActive ? Theme.ActiveTab : Theme.TabContainer;
+            }
+
+            if (control is EditorFramePanel editorFrame)
+                editorFrame.BorderColor = Theme.MapBorderColor(editorFrame.BorderColor, previousDark);
+
             if (control is RoundedButton button)
             {
                 button.BorderColor = Theme.MapBorderColor(button.BorderColor, previousDark);
@@ -1509,12 +1848,16 @@ namespace TYPR
         private async Task StartTypingAsync()
         {
             if (cts != null) return;
-            string payload = text.Text;
+            templateSaveTimer.Stop();
+            SaveActiveTemplate();
+            Theme.SaveSettings();
+            string payload = ActiveTemplate.Text;
             if (string.IsNullOrEmpty(payload)) { status.Text = "Nothing to type."; return; }
 
             cts = new CancellationTokenSource();
             start.Enabled = false;
             stop.Enabled = true;
+            SetTemplateTabsEnabled(false);
             try
             {
                 int delay = (int)startDelay.Value;
@@ -1560,6 +1903,7 @@ namespace TYPR
                 cts = null;
                 start.Enabled = true;
                 stop.Enabled = false;
+                SetTemplateTabsEnabled(true);
             }
         }
 
@@ -1573,6 +1917,435 @@ namespace TYPR
     }
 
     // ---------- Controls ----------
+
+    internal sealed class EditorGroupPanel : TableLayoutPanel
+    {
+        public int CornerRadius { get; set; } = 10;
+        public Color BorderColor { get; set; } = Color.Transparent;
+
+        public EditorGroupPanel()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            e.Graphics.Clear(Parent?.BackColor ?? BackColor);
+            using var path = RoundedPanel.CreatePath(ClientRectangle, CornerRadius);
+            using var fill = new SolidBrush(BackColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.FillPath(fill, path);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (BorderColor.A == 0 || Width < 2 || Height < 2) return;
+
+            var bounds = ClientRectangle;
+            bounds.Width--;
+            bounds.Height--;
+            using var path = RoundedPanel.CreatePath(bounds, CornerRadius);
+            using var pen = new Pen(BorderColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.DrawPath(pen, path);
+        }
+    }
+
+    internal sealed class TemplateFlowLayoutPanel : FlowLayoutPanel
+    {
+        public Color BorderColor { get; set; } = Color.Transparent;
+        private const int CornerRadius = 6;
+
+        public TemplateFlowLayoutPanel()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using var parentFill = new SolidBrush(Parent?.Parent?.BackColor ?? Parent?.BackColor ?? BackColor);
+            e.Graphics.FillRectangle(parentFill, ClientRectangle);
+            using var path = TabContainerPanel.CreateTopRoundedPath(ClientRectangle);
+            using var fill = new SolidBrush(BackColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.FillPath(fill, path);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            TabContainerPanel.TabBorderRenderer.Draw(
+                e.Graphics, ClientRectangle, CornerRadius, BorderColor, drawBottom: true);
+        }
+    }
+
+    internal sealed class EditorTabPanel : Panel
+    {
+        private const int CloseButtonSize = 22;
+        private bool closeButtonHovered;
+
+        public bool IsActive { get; set; }
+        public Color BorderColor { get; set; } = Color.Transparent;
+        public int CornerRadius { get; set; } = 6;
+        public event EventHandler? CloseRequested;
+        public event EventHandler? RenameRequested;
+
+        public EditorTabPanel()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using var parentFill = new SolidBrush(Parent?.Parent?.BackColor ?? Parent?.BackColor ?? BackColor);
+            e.Graphics.FillRectangle(parentFill, ClientRectangle);
+            using var path = TabContainerPanel.CreateTopRoundedPath(ClientRectangle);
+            using var fill = new SolidBrush(BackColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.FillPath(fill, path);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            TabContainerPanel.TabBorderRenderer.Draw(
+                e.Graphics, ClientRectangle, CornerRadius, BorderColor, drawBottom: !IsActive);
+            var textBounds = ClientRectangle;
+            textBounds.X += UiSpacing.Medium;
+            textBounds.Width -= UiSpacing.Medium + CloseButtonSize + 4;
+            TextRenderer.DrawText(
+                e.Graphics,
+                Text,
+                Font,
+                textBounds,
+                ForeColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+
+            Rectangle closeBounds = GetCloseButtonBounds();
+            if (closeButtonHovered)
+            {
+                using var hoverFill = new SolidBrush(Theme.SurfaceMuted);
+                e.Graphics.FillEllipse(hoverFill, closeBounds);
+            }
+
+            int inset = 7;
+            using var closePen = new Pen(ForeColor, 1.4f);
+            e.Graphics.DrawLine(closePen,
+                closeBounds.Left + inset, closeBounds.Top + inset,
+                closeBounds.Right - inset, closeBounds.Bottom - inset);
+            e.Graphics.DrawLine(closePen,
+                closeBounds.Right - inset, closeBounds.Top + inset,
+                closeBounds.Left + inset, closeBounds.Bottom - inset);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && GetCloseButtonBounds().Contains(e.Location))
+            {
+                CloseRequested?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseDoubleClick(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && GetTextBounds().Contains(e.Location))
+            {
+                RenameRequested?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+
+            base.OnMouseDoubleClick(e);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            bool isHovered = GetCloseButtonBounds().Contains(e.Location);
+            if (isHovered != closeButtonHovered)
+            {
+                closeButtonHovered = isHovered;
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (closeButtonHovered)
+            {
+                closeButtonHovered = false;
+                Invalidate();
+            }
+        }
+
+        private Rectangle GetCloseButtonBounds()
+        {
+            return new Rectangle(
+                Width - CloseButtonSize - 4,
+                Math.Max(0, (Height - CloseButtonSize) / 2),
+                CloseButtonSize,
+                CloseButtonSize);
+        }
+
+        private Rectangle GetTextBounds()
+        {
+            return new Rectangle(
+                UiSpacing.Medium,
+                0,
+                Math.Max(0, Width - UiSpacing.Medium - CloseButtonSize - 4),
+                Height);
+        }
+    }
+
+    internal sealed class AddTextButton : Label
+    {
+        private readonly System.Windows.Forms.Timer hoverAnimation = new System.Windows.Forms.Timer
+        {
+            Interval = 15
+        };
+        private int hoverOpacity;
+        private int hoverTarget;
+
+        public AddTextButton()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+            hoverAnimation.Tick += (_, __) =>
+            {
+                hoverOpacity = Math.Clamp(hoverOpacity + hoverTarget, 0, 180);
+                Invalidate();
+                if ((hoverTarget > 0 && hoverOpacity == 180) ||
+                    (hoverTarget < 0 && hoverOpacity == 0))
+                    hoverAnimation.Stop();
+            };
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            base.OnPaintBackground(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            if (hoverOpacity > 0)
+            {
+                const int diameter = 24;
+                // center the hover circle on the rendered plus glyph, not the control bounds,
+                // so it visually aligns with the '+' even when text metrics shift.
+                var textSize = TextRenderer.MeasureText(Text, Font, new Size(Width, Height), TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+                int textX = Math.Max(0, (Width - textSize.Width) / 2);
+                int textY = Math.Max(0, (Height - textSize.Height) / 2);
+                int centerX = textX + textSize.Width / 2;
+                int centerY = textY + textSize.Height / 2;
+                var bounds = new Rectangle(centerX - diameter / 2, centerY - diameter / 2, diameter, diameter);
+                using var hoverFill = new SolidBrush(
+                    Color.FromArgb(hoverOpacity, Theme.SurfaceMuted));
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                e.Graphics.FillEllipse(hoverFill, bounds);
+            }
+            base.OnPaint(e);
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            AnimateHover(1);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            AnimateHover(-1);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                hoverAnimation.Dispose();
+            base.Dispose(disposing);
+        }
+
+        private void AnimateHover(int direction)
+        {
+            hoverTarget = direction * 30;
+            hoverAnimation.Start();
+        }
+    }
+
+    internal sealed class TabContainerPanel : Panel
+    {
+        public Color BorderColor { get; set; } = Color.Transparent;
+        private const int CornerRadius = 6;
+
+        public TabContainerPanel()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var createParams = base.CreateParams;
+                createParams.ExStyle |= 0x02000000;
+                return createParams;
+            }
+        }
+
+        internal static class TabBorderRenderer
+        {
+            public static void Draw(
+                Graphics graphics, Rectangle bounds, int cornerRadius, Color color, bool drawBottom = false)
+            {
+                if (color.A == 0 || bounds.Width < 2 || bounds.Height < 2) return;
+
+                using var pen = new Pen(color);
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                int radius = Math.Max(0, Math.Min(cornerRadius, Math.Min(bounds.Width / 2, bounds.Height)));
+                int right = bounds.Right - 1;
+                int bottom = bounds.Bottom - 1;
+                if (radius == 0)
+                {
+                    graphics.DrawLine(pen, bounds.Left, bounds.Top, bounds.Left, bottom);
+                    graphics.DrawLine(pen, bounds.Left, bounds.Top, right, bounds.Top);
+                    graphics.DrawLine(pen, right, bounds.Top, right, bottom);
+                    if (drawBottom)
+                        graphics.DrawLine(pen, bounds.Left, bottom, right, bottom);
+                    return;
+                }
+
+                int diameter = radius * 2;
+                graphics.DrawArc(pen, bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+                graphics.DrawLine(pen, bounds.Left + radius, bounds.Top, right - radius, bounds.Top);
+                graphics.DrawArc(pen, right - diameter, bounds.Top, diameter, diameter, 270, 90);
+                graphics.DrawLine(pen, bounds.Left, bounds.Top + radius, bounds.Left, bottom);
+                graphics.DrawLine(pen, right, bounds.Top + radius, right, bottom);
+                if (drawBottom)
+                    graphics.DrawLine(pen, bounds.Left, bottom, right, bottom);
+            }
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using var parentFill = new SolidBrush(Parent?.BackColor ?? BackColor);
+            e.Graphics.FillRectangle(parentFill, ClientRectangle);
+            using var path = CreateTopRoundedPath(ClientRectangle);
+            using var fill = new SolidBrush(BackColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.FillPath(fill, path);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (BorderColor.A == 0 || Width < 2 || Height < 2) return;
+
+            using var pen = new Pen(BorderColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            int radius = Math.Min(CornerRadius, Math.Min(Width / 2, Height));
+            if (radius == 0)
+            {
+                e.Graphics.DrawLine(pen, 0, 0, 0, Height - 1);
+                e.Graphics.DrawLine(pen, 0, 0, Width - 1, 0);
+                e.Graphics.DrawLine(pen, Width - 1, 0, Width - 1, Height - 1);
+                e.Graphics.DrawLine(pen, 0, Height - 1, Width - 1, Height - 1);
+                return;
+            }
+
+            int diameter = radius * 2;
+            e.Graphics.DrawArc(pen, 0, 0, diameter, diameter, 180, 90);
+            e.Graphics.DrawLine(pen, radius, 0, Width - radius - 1, 0);
+            e.Graphics.DrawArc(pen, Width - diameter - 1, 0, diameter, diameter, 270, 90);
+            e.Graphics.DrawLine(pen, 0, radius, 0, Height - 1);
+            e.Graphics.DrawLine(pen, Width - 1, radius, Width - 1, Height - 1);
+            e.Graphics.DrawLine(pen, 0, Height - 1, Width - 1, Height - 1);
+        }
+
+        internal static System.Drawing.Drawing2D.GraphicsPath CreateTopRoundedPath(Rectangle bounds)
+        {
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            if (bounds.Width <= 0 || bounds.Height <= 0) return path;
+
+            int radius = Math.Min(CornerRadius, Math.Min(bounds.Width / 2, bounds.Height));
+            path.StartFigure();
+            path.AddLine(bounds.Left, bounds.Bottom, bounds.Left, bounds.Top + radius);
+            path.AddArc(bounds.Left, bounds.Top, radius * 2, radius * 2, 180, 90);
+            path.AddLine(bounds.Left + radius, bounds.Top, bounds.Right - radius, bounds.Top);
+            path.AddArc(bounds.Right - radius * 2, bounds.Top, radius * 2, radius * 2, 270, 90);
+            path.AddLine(bounds.Right, bounds.Top + radius, bounds.Right, bounds.Bottom);
+            path.CloseFigure();
+            return path;
+        }
+
+    }
+
+    internal sealed class EditorFramePanel : Panel
+    {
+        public int CornerRadius { get; set; } = 10;
+        public Color BorderColor { get; set; } = Color.Transparent;
+
+        public EditorFramePanel()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using var parentFill = new SolidBrush(Parent?.BackColor ?? BackColor);
+            e.Graphics.FillRectangle(parentFill, ClientRectangle);
+            using var fill = new SolidBrush(BackColor);
+            e.Graphics.FillRectangle(fill, ClientRectangle);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (BorderColor.A == 0 || Width < 2 || Height < 2) return;
+
+            var bounds = ClientRectangle;
+            bounds.Width--;
+            bounds.Height--;
+            using var path = CreateOpenTopPath(bounds, CornerRadius);
+            using var pen = new Pen(BorderColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.DrawPath(pen, path);
+        }
+
+        private static System.Drawing.Drawing2D.GraphicsPath CreateOpenTopPath(
+            Rectangle bounds, int radius)
+        {
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            if (bounds.Width <= 0 || bounds.Height <= 0) return path;
+
+            radius = Math.Max(0, Math.Min(radius, Math.Min(bounds.Width / 2, bounds.Height / 2)));
+            path.StartFigure();
+            if (radius == 0)
+            {
+                path.AddLine(bounds.Left, bounds.Top, bounds.Left, bounds.Bottom);
+                path.AddLine(bounds.Left, bounds.Bottom, bounds.Right, bounds.Bottom);
+                path.AddLine(bounds.Right, bounds.Bottom, bounds.Right, bounds.Top);
+                return path;
+            }
+
+            int diameter = radius * 2;
+            path.AddLine(bounds.Left, bounds.Top, bounds.Left, bounds.Bottom - radius);
+            path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 180, -90);
+            path.AddLine(bounds.Left + radius, bounds.Bottom, bounds.Right - radius, bounds.Bottom);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 90, -90);
+            path.AddLine(bounds.Right, bounds.Bottom - radius, bounds.Right, bounds.Top);
+            return path;
+        }
+    }
 
     internal class RoundedPanel : Panel
     {
