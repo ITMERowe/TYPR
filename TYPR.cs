@@ -2029,12 +2029,14 @@ namespace TYPR
             Rectangle closeBounds = GetCloseButtonBounds();
             if (closeButtonHovered)
             {
-                using var hoverFill = new SolidBrush(Theme.SurfaceMuted);
+                using var hoverFill = new SolidBrush(Color.FromArgb(180, Theme.SurfaceMuted));
                 e.Graphics.FillEllipse(hoverFill, closeBounds);
             }
 
-            int inset = 7;
+            int inset = 6;
             using var closePen = new Pen(ForeColor, 1.4f);
+            closePen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+            closePen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
             e.Graphics.DrawLine(closePen,
                 closeBounds.Left + inset, closeBounds.Top + inset,
                 closeBounds.Right - inset, closeBounds.Bottom - inset);
@@ -2141,17 +2143,17 @@ namespace TYPR
             {
                 const int diameter = 22;
                 int centerX = Width / 2;
-                int centerY = Height / 2;
+                int centerY = Height / 2 + 3;
                 var bounds = new Rectangle(centerX - diameter / 2, centerY - diameter / 2, diameter, diameter);
                 using var hoverFill = new SolidBrush(Color.FromArgb(hoverOpacity, Theme.SurfaceMuted));
                 e.Graphics.FillEllipse(hoverFill, bounds);
             }
 
-            // Keep the '+' glyph centered on the same visual axis as the close button so both controls read consistently.
+            // Match the close button's 22px hover target and 1.4px rounded glyph strokes.
             int cx = Width / 2;
-            int cy = Height / 2;
+            int cy = Height / 2 + 3;
             int halfLength = 5;
-            using (var pen = new Pen(ForeColor, 2f))
+            using (var pen = new Pen(ForeColor, 1.4f))
             {
                 pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
                 pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
