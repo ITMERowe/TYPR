@@ -2135,23 +2135,29 @@ namespace TYPR
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            // Draw hover circle centered on the control center to match the centered '+' glyph
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             if (hoverOpacity > 0)
             {
                 const int diameter = 24;
-                // center the hover circle on the rendered plus glyph, not the control bounds,
-                // so it visually aligns with the '+' even when text metrics shift.
-                var textSize = TextRenderer.MeasureText(Text, Font, new Size(Width, Height), TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
-                int textX = Math.Max(0, (Width - textSize.Width) / 2);
-                int textY = Math.Max(0, (Height - textSize.Height) / 2);
-                int centerX = textX + textSize.Width / 2;
-                int centerY = textY + textSize.Height / 2;
+                int centerX = Width / 2;
+                int centerY = Height / 2;
                 var bounds = new Rectangle(centerX - diameter / 2, centerY - diameter / 2, diameter, diameter);
-                using var hoverFill = new SolidBrush(
-                    Color.FromArgb(hoverOpacity, Theme.SurfaceMuted));
-                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using var hoverFill = new SolidBrush(Color.FromArgb(hoverOpacity, Theme.SurfaceMuted));
                 e.Graphics.FillEllipse(hoverFill, bounds);
             }
-            base.OnPaint(e);
+
+            // Draw the '+' glyph tightly centered in the control to ensure alignment with the hover circle.
+            TextRenderer.DrawText(
+                e.Graphics,
+                Text,
+                Font,
+                ClientRectangle,
+                ForeColor,
+                TextFormatFlags.HorizontalCenter |
+                TextFormatFlags.VerticalCenter |
+                TextFormatFlags.SingleLine |
+                TextFormatFlags.NoPrefix);
         }
 
         protected override void OnMouseEnter(EventArgs e)
