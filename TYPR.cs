@@ -138,17 +138,17 @@ namespace TYPR
 
         // ---- VS Code inspired palette ----
 
-        public static Color TitleBar      => Dark ? Color.FromArgb(24, 24, 24)     : Color.FromArgb(221, 221, 221);
-        public static Color ActivityBar   => Dark ? Color.FromArgb(24, 24, 24)     : Color.FromArgb(44, 44, 44);
-        public static Color SideBar       => Dark ? Color.FromArgb(24, 24, 24)     : Color.FromArgb(243, 243, 243);
-        public static Color Editor        => Dark ? Color.FromArgb(31, 31, 31)     : Color.FromArgb(255, 255, 254);
-        public static Color TabStrip      => Dark ? Color.FromArgb(24, 24, 24)     : Color.FromArgb(236, 236, 236);
+        public static Color TitleBar      => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(221, 221, 221);
+        public static Color ActivityBar   => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(44, 44, 44);
+        public static Color SideBar       => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(243, 243, 243);
+        public static Color Editor        => Dark ? Color.FromArgb(18, 19, 20)     : Color.FromArgb(255, 255, 254);
+        public static Color TabStrip      => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(236, 236, 236);
         public static Color StatusBar     => Color.FromArgb(0, 122, 204);
         public static Color StatusBarHover => Color.FromArgb(0, 95, 158);
         public static Color Input         => Dark ? Color.FromArgb(49, 49, 49)     : Color.White;
         public static Color Border        => Dark ? Color.FromArgb(60, 60, 60)     : Color.FromArgb(206, 206, 206);
         public static Color PaneBorder    => Dark ? Color.FromArgb(43, 43, 43)     : Color.FromArgb(224, 224, 224);
-        public static Color Surface       => Dark ? Color.FromArgb(37, 37, 38)     : Color.White;
+        public static Color Surface       => Dark ? Color.FromArgb(25, 26, 27)     : Color.White;
         public static Color SurfaceMuted  => Dark ? Color.FromArgb(58, 58, 58)     : Color.FromArgb(232, 232, 232);
         public static Color FocusBorder   => Color.FromArgb(0, 127, 212);
         public static Color Text          => Dark ? Color.FromArgb(204, 204, 204)  : Color.FromArgb(51, 51, 51);
@@ -199,16 +199,16 @@ namespace TYPR
             return color;
         }
 
-        private static Color TitleBarFor(bool dark) => dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(221, 221, 221);
-        private static Color ActivityBarFor(bool dark) => dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(44, 44, 44);
-        private static Color SideBarFor(bool dark) => dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(243, 243, 243);
-        private static Color EditorFor(bool dark) => dark ? Color.FromArgb(31, 31, 31) : Color.FromArgb(255, 255, 254);
-        private static Color TabStripFor(bool dark) => dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(236, 236, 236);
+        private static Color TitleBarFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(221, 221, 221);
+        private static Color ActivityBarFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(44, 44, 44);
+        private static Color SideBarFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(243, 243, 243);
+        private static Color EditorFor(bool dark) => dark ? Color.FromArgb(18, 19, 20) : Color.FromArgb(255, 255, 254);
+        private static Color TabStripFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(236, 236, 236);
         private static Color StatusBarFor(bool dark) => Color.FromArgb(0, 122, 204);
         private static Color InputFor(bool dark) => dark ? Color.FromArgb(49, 49, 49) : Color.White;
         private static Color BorderFor(bool dark) => dark ? Color.FromArgb(60, 60, 60) : Color.FromArgb(206, 206, 206);
         private static Color PaneBorderFor(bool dark) => dark ? Color.FromArgb(43, 43, 43) : Color.FromArgb(224, 224, 224);
-        private static Color SurfaceFor(bool dark) => dark ? Color.FromArgb(37, 37, 38) : Color.White;
+        private static Color SurfaceFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.White;
         private static Color SurfaceMutedFor(bool dark) => dark ? Color.FromArgb(58, 58, 58) : Color.FromArgb(232, 232, 232);
         private static Color TextFor(bool dark) => dark ? Color.FromArgb(204, 204, 204) : Color.FromArgb(51, 51, 51);
         private static Color Text2For(bool dark) => dark ? Color.FromArgb(157, 157, 157) : Color.FromArgb(97, 97, 97);
@@ -367,6 +367,7 @@ namespace TYPR
         private readonly WindowCaptionButton maximizeButton = new WindowCaptionButton(WindowCaptionButtonKind.Maximize);
         private readonly ActivityBarButton settingsButton = new ActivityBarButton(ActivityBarButtonKind.Settings);
         private readonly ActivityBarButton themeToggleButton = new ActivityBarButton(ActivityBarButtonKind.ThemeToggle);
+        private Control? windowContent;
         private Panel settingsView = null!;
         private CancellationTokenSource? cts;
         private readonly Random rng = new Random();
@@ -393,10 +394,16 @@ namespace TYPR
             ClientSize = new Size(1020, 700);
             MinimumSize = new Size(900, 640);
             StartPosition = FormStartPosition.CenterScreen;
-            BackColor = Theme.TitleBar;
+            BackColor = Theme.PaneBorder;
             Font = new Font("Segoe UI", UiTypography.Body);
             maximizeButton.Click += (_, __) => ToggleWindowState();
-            Resize += (_, __) => maximizeButton.IsMaximized = WindowState == FormWindowState.Maximized;
+            Resize += (_, __) =>
+            {
+                bool maximized = WindowState == FormWindowState.Maximized;
+                maximizeButton.IsMaximized = maximized;
+                if (windowContent != null)
+                    windowContent.Margin = maximized ? Padding.Empty : new Padding(1);
+            };
 
             themeToggleButton.IsDarkTheme = Theme.Dark;
             themeToggleButton.Click += (_, __) => ToggleTheme();
@@ -454,12 +461,12 @@ namespace TYPR
             };
 
             status.Text = "Ready — focus the target window during the countdown";
+            status.AutoSize = false;
             status.AutoEllipsis = true;
-            status.Dock = DockStyle.None;
-            status.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            status.Dock = DockStyle.Fill;
             status.TextAlign = ContentAlignment.MiddleLeft;
             status.ForeColor = Theme.Text2;
-            status.Padding = Padding.Empty;
+            status.Padding = new Padding(0, 8, 0, 0);
             status.Margin = Padding.Empty;
 
             characterCount.Text = "0 chars";
@@ -482,7 +489,7 @@ namespace TYPR
                 BackColor = Theme.TitleBar,
                 ColumnCount = 1,
                 RowCount = 2,
-                Margin = Padding.Empty,
+                Margin = WindowState == FormWindowState.Maximized ? Padding.Empty : new Padding(1),
                 Padding = Padding.Empty
             };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
@@ -490,6 +497,7 @@ namespace TYPR
             root.Controls.Add(BuildTitleBar(), 0, 0);
             root.Controls.Add(BuildContent(), 0, 1);
             Controls.Add(root);
+            windowContent = root;
 
             UpdateThemeToggleButton();
         }
@@ -558,7 +566,7 @@ namespace TYPR
             {
                 Dock = DockStyle.Fill,
                 BackColor = Theme.Editor,
-                Padding = new Padding(UiSpacing.XSmall, UiSpacing.Small, UiSpacing.Small, UiSpacing.XSmall),
+                Padding = new Padding(UiSpacing.Small, UiSpacing.Small, UiSpacing.XSmall, UiSpacing.Small),
                 Margin = Padding.Empty
             };
 
@@ -668,7 +676,7 @@ namespace TYPR
             };
             group.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
             group.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            group.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            group.RowStyles.Add(new RowStyle(SizeType.Absolute, 53));
             group.Controls.Add(BuildTabStrip(), 0, 0);
             group.Controls.Add(BuildEditorSurface(), 0, 1);
             group.Controls.Add(BuildEditorActions(), 0, 2);
@@ -683,8 +691,8 @@ namespace TYPR
                 ColumnCount = 5,
                 RowCount = 1,
                 BackColor = Theme.Editor,
-                Margin = Padding.Empty,
-                Padding = new Padding(UiSpacing.Medium, UiSpacing.Small, UiSpacing.Medium, UiSpacing.Small)
+                Margin = new Padding(UiSpacing.XSmall, UiSpacing.XSmall, UiSpacing.XSmall, 10),
+                Padding = new Padding(2, 4, 2, 4)
             };
             actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
             actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -799,7 +807,7 @@ namespace TYPR
             {
                 Dock = DockStyle.Fill,
                 BackColor = Theme.Editor,
-                Padding = new Padding(UiSpacing.XSmall),
+                Padding = new Padding(4, 8, 8, 4),
                 Margin = Padding.Empty
             };
             var surface = new RoundedPanel
@@ -1241,7 +1249,7 @@ namespace TYPR
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            NativeMethods.SetWindowAppearance(Handle, Theme.TitleBar);
+            NativeMethods.SetWindowAppearance(Handle, Theme.PaneBorder);
             TryRegisterHotKeys();
         }
 
@@ -1443,7 +1451,7 @@ namespace TYPR
             bool previousDark = Theme.Dark;
             Theme.SetMode(previousDark ? "Light" : "Dark");
             ApplyTheme(this, previousDark);
-            if (IsHandleCreated) NativeMethods.SetWindowAppearance(Handle, Theme.TitleBar);
+            if (IsHandleCreated) NativeMethods.SetWindowAppearance(Handle, Theme.PaneBorder);
             Theme.SaveSettings();
             UpdateThemeToggleButton();
         }
