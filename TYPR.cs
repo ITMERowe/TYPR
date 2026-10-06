@@ -2147,17 +2147,17 @@ namespace TYPR
                 e.Graphics.FillEllipse(hoverFill, bounds);
             }
 
-            // Draw the '+' glyph tightly centered in the control to ensure alignment with the hover circle.
-            TextRenderer.DrawText(
-                e.Graphics,
-                Text,
-                Font,
-                ClientRectangle,
-                ForeColor,
-                TextFormatFlags.HorizontalCenter |
-                TextFormatFlags.VerticalCenter |
-                TextFormatFlags.SingleLine |
-                TextFormatFlags.NoPrefix);
+            // Draw the '+' glyph manually (two centered strokes) to guarantee pixel-perfect centering.
+            int cx = Width / 2;
+            int cy = Height / 2;
+            int halfLength = 6; // half-length of each arm in pixels; tuned for visual balance at 28x28 control
+            using (var pen = new Pen(ForeColor, 2f))
+            {
+                pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                e.Graphics.DrawLine(pen, cx - halfLength, cy, cx + halfLength, cy);
+                e.Graphics.DrawLine(pen, cx, cy - halfLength, cx, cy + halfLength);
+            }
         }
 
         protected override void OnMouseEnter(EventArgs e)
