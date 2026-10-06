@@ -929,7 +929,16 @@ namespace TYPR
                     Margin = Padding.Empty,
                     Padding = Padding.Empty,
                     Cursor = Cursors.Hand,
-                    AccessibleRole = AccessibleRole.PageTab,                    AccessibleName = $"{Theme.Settings.TextTemplates[i].Name}, text tab. Double-click to rename."                };                tab.Click += (_, __) => SelectTextTemplate(templateIndex);                tab.RenameRequested += (_, __) => RenameTextTemplate(templateIndex);                templateTabs.Controls.Add(tab);                tab.Enabled = cts == null;            }            templateTabs.Controls.Add(addTemplateButton);
+                    AccessibleRole = AccessibleRole.PageTab,
+                    AccessibleName = $"{Theme.Settings.TextTemplates[i].Name}, text tab. Double-click to rename; close button deletes it."
+                };
+                tab.Click += (_, __) => SelectTextTemplate(templateIndex);
+                tab.CloseRequested += (_, __) => DeleteTextTemplate(templateIndex);
+                tab.RenameRequested += (_, __) => RenameTextTemplate(templateIndex);
+                templateTabs.Controls.Add(tab);
+                tab.Enabled = cts == null;
+            }
+            templateTabs.Controls.Add(addTemplateButton);
             addTemplateButton.Enabled = cts == null;
             templateTabs.ResumeLayout(true);
         }
@@ -1975,11 +1984,126 @@ namespace TYPR
 
     internal sealed class EditorTabPanel : Panel
     {
+        private const int CloseButtonSize = 22;
+        private bool closeButtonHovered;
+
         public bool IsActive { get; set; }
         public Color BorderColor { get; set; } = Color.Transparent;
-        public int CornerRadius { get; set; } = 6;        public event EventHandler? RenameRequested;
-        public EditorTabPanel()
-        {            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);        }        protected override void OnPaintBackground(PaintEventArgs e)        {            using var parentFill = new SolidBrush(Parent?.Parent?.BackColor ?? Parent?.BackColor ?? BackColor);            e.Graphics.FillRectangle(parentFill, ClientRectangle);            using var path = TabContainerPanel.CreateTopRoundedPath(ClientRectangle);            using var fill = new SolidBrush(BackColor);            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;            e.Graphics.FillPath(fill, path);        }        protected override void OnPaint(PaintEventArgs e)        {            base.OnPaint(e);            TabContainerPanel.TabBorderRenderer.Draw(                e.Graphics, ClientRectangle, CornerRadius, BorderColor, drawBottom: !IsActive);            var textBounds = ClientRectangle;            textBounds.X += UiSpacing.Medium;            // no close button on tabs — text can use the full remaining width            textBounds.Width = Math.Max(0, ClientRectangle.Width - UiSpacing.Medium - 4);            TextRenderer.DrawText(                e.Graphics,                Text,                Font,                textBounds,                ForeColor,                TextFormatFlags.Left | TextFormatFlags.VerticalCenter |                TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);        }        protected override void OnMouseDown(MouseEventArgs e)        {            base.OnMouseDown(e);        }        protected override void OnMouseDoubleClick(MouseEventArgs e)        {            if (e.Button == MouseButtons.Left && GetTextBounds().Contains(e.Location))            {                RenameRequested?.Invoke(this, EventArgs.Empty);                return;            }            base.OnMouseDoubleClick(e);        }        private Rectangle GetTextBounds()        {            return new Rectangle(                UiSpacing.Medium,                0,                Math.Max(0, Width - UiSpacing.Medium - 4),                Height);        }    }
+        public int CornerRadius { get; set; } = 6;
+        public event EventHandler? CloseRequested;
+        public event EventHandler? RenameRequested;
+
+        public EditorTabPanel()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using var parentFill = new SolidBrush(Parent?.Parent?.BackColor ?? Parent?.BackColor ?? BackColor);
+            e.Graphics.FillRectangle(parentFill, ClientRectangle);
+            using var path = TabContainerPanel.CreateTopRoundedPath(ClientRectangle);
+            using var fill = new SolidBrush(BackColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.FillPath(fill, path);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            TabContainerPanel.TabBorderRenderer.Draw(
+                e.Graphics, ClientRectangle, CornerRadius, BorderColor, drawBottom: !IsActive);
+            var textBounds = ClientRectangle;
+            textBounds.X += UiSpacing.Medium;
+            textBounds.Width -= UiSpacing.Medium + CloseButtonSize + 4;
+            TextRenderer.DrawText(
+                e.Graphics,
+                Text,
+                Font,
+                textBounds,
+                ForeColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+
+            Rectangle closeBounds = GetCloseButtonBounds();
+            if (closeButtonHovered)
+            {
+                using var hoverFill = new SolidBrush(Theme.SurfaceMuted);
+                e.Graphics.FillEllipse(hoverFill, closeBounds);
+            }
+
+            int inset = 7;
+            using var closePen = new Pen(ForeColor, 1.4f);
+            e.Graphics.DrawLine(closePen,
+                closeBounds.Left + inset, closeBounds.Top + inset,
+                closeBounds.Right - inset, closeBounds.Bottom - inset);
+            e.Graphics.DrawLine(closePen,
+                closeBounds.Right - inset, closeBounds.Top + inset,
+                closeBounds.Left + inset, closeBounds.Bottom - inset);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && GetCloseButtonBounds().Contains(e.Location))
+            {
+                CloseRequested?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseDoubleClick(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && GetTextBounds().Contains(e.Location))
+            {
+                RenameRequested?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+
+            base.OnMouseDoubleClick(e);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            bool isHovered = GetCloseButtonBounds().Contains(e.Location);
+            if (isHovered != closeButtonHovered)
+            {
+                closeButtonHovered = isHovered;
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (closeButtonHovered)
+            {
+                closeButtonHovered = false;
+                Invalidate();
+            }
+        }
+
+        private Rectangle GetCloseButtonBounds()
+        {
+            return new Rectangle(
+                Width - CloseButtonSize - 4,
+                Math.Max(0, (Height - CloseButtonSize) / 2),
+                CloseButtonSize,
+                CloseButtonSize);
+        }
+
+        private Rectangle GetTextBounds()
+        {
+            return new Rectangle(
+                UiSpacing.Medium,
+                0,
+                Math.Max(0, Width - UiSpacing.Medium - CloseButtonSize - 4),
+                Height);
+        }
+    }
 
     internal sealed class AddTextButton : Label
     {
@@ -2015,18 +2139,18 @@ namespace TYPR
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             if (hoverOpacity > 0)
             {
-                const int diameter = 24;
+                const int diameter = 22;
                 int centerX = Width / 2;
-                int centerY = Height / 2 + 2; // moved slightly lower to match reference image
+                int centerY = Height / 2;
                 var bounds = new Rectangle(centerX - diameter / 2, centerY - diameter / 2, diameter, diameter);
                 using var hoverFill = new SolidBrush(Color.FromArgb(hoverOpacity, Theme.SurfaceMuted));
                 e.Graphics.FillEllipse(hoverFill, bounds);
             }
 
-            // Draw the '+' glyph manually, shifted right to better align with the hover circle.
-            int cx = Width / 2 + 2; // moved slightly to the right
+            // Keep the '+' glyph centered on the same visual axis as the close button so both controls read consistently.
+            int cx = Width / 2;
             int cy = Height / 2;
-            int halfLength = 6; // half-length of each arm in pixels; tuned for visual balance at 28x28 control
+            int halfLength = 5;
             using (var pen = new Pen(ForeColor, 2f))
             {
                 pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
