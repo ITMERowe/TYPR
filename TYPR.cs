@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -59,10 +60,17 @@ namespace TYPR
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-                File.WriteAllText(SettingsPath, JsonSerializer.Serialize(Settings, new JsonSerializerOptions
+                string json = JsonSerializer.Serialize(Settings, new JsonSerializerOptions
                 {
                     WriteIndented = true
-                }));
+                });
+                // Write to a temp file and rename over the real one so a crash or power loss
+                // mid-write can't leave settings.json half-written and unparseable — that would
+                // silently wipe every saved text template on next launch (LoadSettings treats a
+                // corrupt file as "no settings").
+                string tempPath = SettingsPath + ".tmp";
+                File.WriteAllText(tempPath, json);
+                File.Move(tempPath, SettingsPath, overwrite: true);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
@@ -154,7 +162,7 @@ namespace TYPR
         // ---- VS Code inspired palette ----
 
         public static Color TitleBar      => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(221, 221, 221);
-        public static Color ActivityBar   => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(44, 44, 44);
+        public static Color ActivityBar   => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(243, 243, 243);
         public static Color SideBar       => Dark ? Color.FromArgb(25, 26, 27)     : Color.FromArgb(243, 243, 243);
         public static Color Editor        => Dark ? Color.FromArgb(17, 17, 17)     : Color.FromArgb(255, 255, 255);
         public static Color TabStrip      => Dark ? Color.FromArgb(24, 24, 24)     : Color.FromArgb(243, 243, 243);
@@ -175,7 +183,8 @@ namespace TYPR
         public static Color AccentHover   => Color.FromArgb(0, 90, 158);
         public static Color Positive      => Color.FromArgb(137, 209, 133);
         public static Color OnAccent      => Color.White;
-        public static Color ActivityGlyph => Color.FromArgb(197, 197, 197);
+        public static Color ActivityGlyph => Dark ? Color.FromArgb(197, 197, 197) : Color.FromArgb(110, 110, 110);
+        public static Color ActivityBarHover => Dark ? Color.FromArgb(62, 62, 62) : Color.FromArgb(222, 222, 222);
         public static Color StatusBarText => Color.White;
 
         public static Color MapBackColor(Color color, bool fromDark)
@@ -218,7 +227,7 @@ namespace TYPR
         }
 
         private static Color TitleBarFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(221, 221, 221);
-        private static Color ActivityBarFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(44, 44, 44);
+        private static Color ActivityBarFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(243, 243, 243);
         private static Color SideBarFor(bool dark) => dark ? Color.FromArgb(25, 26, 27) : Color.FromArgb(243, 243, 243);
         private static Color EditorFor(bool dark) => dark ? Color.FromArgb(17, 17, 17) : Color.FromArgb(255, 255, 255);
         private static Color TabStripFor(bool dark) => dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(243, 243, 243);
@@ -421,6 +430,19 @@ namespace TYPR
             uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
             if (sent == (uint)inputs.Length) return;
 
+            // A partial send (key-down accepted, key-up dropped) leaves a key stuck down in
+            // whatever app has focus. Best-effort only: if SendInput is fully blocked (e.g. by
+            // UIPI against an elevated window) this retry will fail too and we fall through to
+            // the exception below; there's no further recovery available at this layer.
+            if (sent > 0 && sent < (uint)inputs.Length)
+            {
+                for (int i = (int)sent; i < inputs.Length; i++)
+                {
+                    if ((inputs[i].U.ki.dwFlags & KEYEVENTF_KEYUP) != 0)
+                        SendInput(1, new[] { inputs[i] }, Marshal.SizeOf(typeof(INPUT)));
+                }
+            }
+
             int error = Marshal.GetLastWin32Error();
             string detail = error == 0
                 ? "Windows blocked or rejected the synthetic keyboard input."
@@ -452,6 +474,7 @@ namespace TYPR
         private readonly ActivityBarButton themeToggleButton = new ActivityBarButton(ActivityBarButtonKind.ThemeToggle);
         private readonly System.Windows.Forms.Timer templateSaveTimer = new System.Windows.Forms.Timer { Interval = 400 };
         private readonly AddTextButton addTemplateButton = new AddTextButton();
+        private readonly LinkLabel resetHotkeysLink = new LinkLabel();
         private Control? windowContent;
         private TemplateFlowLayoutPanel templateTabs = null!;
         private EditorFramePanel? editorFrame;
@@ -460,6 +483,11 @@ namespace TYPR
         private readonly Random rng = new Random();
         private bool hotkeysRegistered;
         private bool loadingTemplate;
+        // Global hotkeys are registered on this top-level window and fire via WM_HOTKEY
+        // regardless of which child window has focus, so a TYPR modal dialog (e.g. rename)
+        // being open doesn't stop F8/F9 from starting/stopping typing underneath it.
+        private bool modalDialogOpen;
+        private readonly Font tabFont = new Font("Segoe UI", UiTypography.Body);
 
         private const int HOTKEY_START = 1;
         private const int HOTKEY_STOP = 2;
@@ -494,8 +522,12 @@ namespace TYPR
             };
 
             themeToggleButton.IsDarkTheme = Theme.Dark;
+            themeToggleButton.AccessibleRole = AccessibleRole.PushButton;
             themeToggleButton.Click += (_, __) => ToggleTheme();
             settingsButton.IsActive = true;
+            settingsButton.Interactive = false;
+            settingsButton.AccessibleRole = AccessibleRole.StaticText;
+            settingsButton.AccessibleName = "Typing settings (current view)";
 
             cpm.Minimum = 30;
             cpm.Maximum = 20000;
@@ -508,7 +540,7 @@ namespace TYPR
             jitter.Value = 5;
             jitter.ValueChanged += (_, __) => jitterValue.Text = jitter.Value + "%";
             jitterValue.Text = jitter.Value + "%";
-            cpm.ValueChanged += (_, __) => cpmIndicator.Text = $"{cpm.Value:N0} CPM";
+            cpm.ValueChanged += (_, __) => cpmIndicator.Text = $"{cpm.Value.ToString("N0", CultureInfo.InvariantCulture)} CPM";
 
             text.Multiline = true;
             text.AcceptsReturn = true;
@@ -523,7 +555,7 @@ namespace TYPR
             text.PlaceholderText = "Paste or type the text you want TYPR to type for you...";
             text.TextChanged += (_, __) =>
             {
-                characterCount.Text = $"{text.TextLength:N0} chars";
+                characterCount.Text = $"{text.TextLength.ToString("N0", CultureInfo.InvariantCulture)} chars";
                 if (loadingTemplate) return;
                 ActiveTemplate.Text = text.Text;
                 templateSaveTimer.Stop();
@@ -536,7 +568,6 @@ namespace TYPR
                 Theme.SaveSettings();
             };
 
-            pressEnter.TabStop = false;
             pressEnter.Cursor = Cursors.Hand;
 
             start.Text = "Start typing";
@@ -546,22 +577,14 @@ namespace TYPR
             stop.Text = "Stop";
             stop.AccessibleName = $"Stop typing ({FormatHotkey(Theme.Settings.StopModifiers, Theme.Settings.StopKey)})";
             stop.Enabled = false;
-            stop.MouseUp += StopButton_MouseUp;
+            stop.Click += (_, __) => StopTyping();
 
             ConfigureHotkeyButton(startHotkey, "Start typing", Theme.Settings.StartModifiers, Theme.Settings.StartKey);
-            startHotkey.MouseUp += (_, e) =>
-            {
-                if (e.Button == MouseButtons.Left && startHotkey.ClientRectangle.Contains(e.Location))
-                    ChangeHotkey(true);
-            };
+            startHotkey.Click += (_, __) => ChangeHotkey(true);
             ConfigureHotkeyButton(stopHotkey, "Stop", Theme.Settings.StopModifiers, Theme.Settings.StopKey);
-            stopHotkey.MouseUp += (_, e) =>
-            {
-                if (e.Button == MouseButtons.Left && stopHotkey.ClientRectangle.Contains(e.Location))
-                    ChangeHotkey(false);
-            };
+            stopHotkey.Click += (_, __) => ChangeHotkey(false);
 
-            status.Text = "Ready — focus the target window during the countdown";
+            status.Text = "Ready — focus the target window first";
             status.AutoSize = false;
             status.AutoEllipsis = true;
             status.Dock = DockStyle.Fill;
@@ -579,9 +602,9 @@ namespace TYPR
             loadingTemplate = true;
             text.Text = ActiveTemplate.Text;
             loadingTemplate = false;
-            characterCount.Text = $"{text.TextLength:N0} chars";
+            characterCount.Text = $"{text.TextLength.ToString("N0", CultureInfo.InvariantCulture)} chars";
 
-            cpmIndicator.Text = $"{cpm.Value:N0} CPM";
+            cpmIndicator.Text = $"{cpm.Value.ToString("N0", CultureInfo.InvariantCulture)} CPM";
             cpmIndicator.Dock = DockStyle.Fill;
             cpmIndicator.ForeColor = Theme.Text3;
             cpmIndicator.TextAlign = ContentAlignment.MiddleRight;
@@ -603,12 +626,16 @@ namespace TYPR
             root.Controls.Add(BuildContent(), 0, 1);
             Controls.Add(root);
             windowContent = root;
+            // Stop any in-flight typing before the window (and its controls) go away, so
+            // SendInput doesn't keep firing into whatever window has focus after TYPR closes.
+            FormClosing += (_, __) => cts?.Cancel();
             FormClosed += (_, __) =>
             {
                 templateSaveTimer.Stop();
                 SaveActiveTemplate();
                 Theme.SaveSettings();
                 templateSaveTimer.Dispose();
+                tabFont.Dispose();
             };
 
             UpdateThemeToggleButton();
@@ -728,7 +755,7 @@ namespace TYPR
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 13,
+                RowCount = 14,
                 BackColor = Theme.SideBar,
                 Margin = Padding.Empty
             };
@@ -736,18 +763,19 @@ namespace TYPR
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));   // speed
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));   // delay
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));   // jitter
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));   // divider
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));   // divider
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));   // OPTIONS header
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));   // toggle row
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));   // divider
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));   // divider
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));   // SHORTCUTS header
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));   // start row
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));   // stop row
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));   // hint
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));   // hint
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));   // reset link
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             layout.Controls.Add(SectionHeader("TYPING"), 0, 0);
-            layout.Controls.Add(CreateSettingField("Typing speed (characters per minute)", cpm), 0, 1);
+            layout.Controls.Add(CreateSettingField("Typing speed (CPM)", cpm), 0, 1);
             layout.Controls.Add(CreateSettingField("Start delay (seconds)", startDelay), 0, 2);
             layout.Controls.Add(CreateSliderField("Typing variation — humanize pacing", jitter, jitterValue), 0, 3);
             layout.Controls.Add(Divider(), 0, 4);
@@ -770,6 +798,19 @@ namespace TYPR
                 Margin = new Padding(UiSpacing.XSmall, UiSpacing.Small, 0, 0)
             };
             layout.Controls.Add(hint, 0, 11);
+
+            resetHotkeysLink.Text = "Reset to F8 / F9";
+            resetHotkeysLink.Dock = DockStyle.Fill;
+            resetHotkeysLink.LinkColor = Theme.Accent;
+            resetHotkeysLink.ActiveLinkColor = Theme.AccentHover;
+            resetHotkeysLink.VisitedLinkColor = Theme.Accent;
+            resetHotkeysLink.LinkBehavior = LinkBehavior.HoverUnderline;
+            resetHotkeysLink.Font = new Font("Segoe UI", UiTypography.Body);
+            resetHotkeysLink.TextAlign = ContentAlignment.TopLeft;
+            resetHotkeysLink.Margin = new Padding(UiSpacing.XSmall, 0, 0, 0);
+            resetHotkeysLink.AccessibleName = "Reset shortcuts to F8 start, F9 stop";
+            resetHotkeysLink.LinkClicked += (_, __) => ResetHotkeysToDefault();
+            layout.Controls.Add(resetHotkeysLink, 0, 12);
 
             view.Controls.Add(layout);
             return view;
@@ -891,7 +932,6 @@ namespace TYPR
             addTemplateButton.Font = new Font("Segoe UI", 16f);
             addTemplateButton.TextAlign = ContentAlignment.MiddleCenter;
             addTemplateButton.Cursor = Cursors.Hand;
-            addTemplateButton.TabStop = false;
             addTemplateButton.Click += (_, __) => AddTextTemplate();
 
             strip.Controls.Add(templateTabs);
@@ -925,12 +965,12 @@ namespace TYPR
                     BorderColor = Theme.PaneBorder,
                     CornerRadius = 6,
                     ForeColor = isActive ? Theme.Text : Theme.Text2,
-                    Font = new Font("Segoe UI", UiTypography.Body),
+                    Font = tabFont,
                     Margin = Padding.Empty,
                     Padding = Padding.Empty,
                     Cursor = Cursors.Hand,
                     AccessibleRole = AccessibleRole.PageTab,
-                    AccessibleName = $"{Theme.Settings.TextTemplates[i].Name}, text tab. Double-click to rename; close button deletes it."
+                    AccessibleName = $"{Theme.Settings.TextTemplates[i].Name}, text tab. Enter selects. F2 or double-click renames. Delete closes it."
                 };
                 tab.Click += (_, __) => SelectTextTemplate(templateIndex);
                 tab.CloseRequested += (_, __) => DeleteTextTemplate(templateIndex);
@@ -971,7 +1011,7 @@ namespace TYPR
             loadingTemplate = true;
             text.Text = ActiveTemplate.Text;
             loadingTemplate = false;
-            characterCount.Text = $"{text.TextLength:N0} chars";
+            characterCount.Text = $"{text.TextLength.ToString("N0", CultureInfo.InvariantCulture)} chars";
             RefreshTemplateTabs();
             Theme.SaveSettings();
             text.Focus();
@@ -993,6 +1033,24 @@ namespace TYPR
 
             templateSaveTimer.Stop();
             SaveActiveTemplate();
+
+            if (!string.IsNullOrWhiteSpace(Theme.Settings.TextTemplates[index].Text))
+            {
+                modalDialogOpen = true;
+                DialogResult confirm;
+                try
+                {
+                    confirm = MessageBox.Show(this,
+                        $"\"{Theme.Settings.TextTemplates[index].Name}\" has saved text. Delete it anyway?",
+                        "TYPR - delete text", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+                }
+                finally
+                {
+                    modalDialogOpen = false;
+                }
+                if (confirm != DialogResult.Yes) return;
+            }
+
             int activeIndex = Theme.Settings.ActiveTextTemplate;
             Theme.Settings.TextTemplates.RemoveAt(index);
 
@@ -1006,7 +1064,7 @@ namespace TYPR
                 loadingTemplate = true;
                 text.Text = ActiveTemplate.Text;
                 loadingTemplate = false;
-                characterCount.Text = $"{text.TextLength:N0} chars";
+                characterCount.Text = $"{text.TextLength.ToString("N0", CultureInfo.InvariantCulture)} chars";
             }
 
             RefreshTemplateTabs();
@@ -1071,7 +1129,17 @@ namespace TYPR
                 dialog.DialogResult = DialogResult.OK;
             };
 
-            if (dialog.ShowDialog(this) != DialogResult.OK)
+            modalDialogOpen = true;
+            DialogResult renameResult;
+            try
+            {
+                renameResult = dialog.ShowDialog(this);
+            }
+            finally
+            {
+                modalDialogOpen = false;
+            }
+            if (renameResult != DialogResult.OK)
                 return;
 
             string name = nameInput.Text.Trim();
@@ -1294,7 +1362,7 @@ namespace TYPR
                 return;
             }
 
-            if (m.Msg == NativeMethods.WM_HOTKEY)
+            if (m.Msg == NativeMethods.WM_HOTKEY && !modalDialogOpen)
             {
                 int id = m.WParam.ToInt32();
                 if (id == HOTKEY_START) _ = StartTypingAsync();
@@ -1336,8 +1404,11 @@ namespace TYPR
                 const int WS_CAPTION = 0x00C00000;
                 const int WS_SYSMENU = 0x00080000;
                 var parameters = base.CreateParams;
-                parameters.Style &= ~(WS_CAPTION | WS_SYSMENU);
-                parameters.Style |= WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+                // Keep WS_SYSMENU (just drop WS_CAPTION): there's no title bar to show a menu
+                // button on, but the bit alone keeps Alt+Space/Alt+F4 and the taskbar icon's
+                // right-click system menu working for keyboard-only window management.
+                parameters.Style &= ~WS_CAPTION;
+                parameters.Style |= WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
                 return parameters;
             }
         }
@@ -1348,9 +1419,10 @@ namespace TYPR
         {
             return new Panel
             {
-                Dock = DockStyle.Fill,
+                Dock = DockStyle.Top,
+                Height = 1,
                 BackColor = Theme.PaneBorder,
-                Margin = new Padding(UiSpacing.XSmall, UiSpacing.XSmall, UiSpacing.XSmall, UiSpacing.XSmall)
+                Margin = new Padding(UiSpacing.XSmall, UiSpacing.Small, UiSpacing.XSmall, UiSpacing.Small)
             };
         }
 
@@ -1621,11 +1693,6 @@ namespace TYPR
             await StartTypingAsync();
         }
 
-        private void StopButton_MouseUp(object? sender, MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Left && stop.ClientRectangle.Contains(e.Location))
-                StopTyping();
-        }
 
         private void ChangeHotkey(bool isStart)
         {
@@ -1751,6 +1818,30 @@ namespace TYPR
             status.Text = $"Shortcuts updated — {startHotkey.Text} starts, {stopHotkey.Text} stops.";
         }
 
+        private void ResetHotkeysToDefault()
+        {
+            if (Theme.Settings.StartKey == (int)Keys.F8 && Theme.Settings.StartModifiers == 0 &&
+                Theme.Settings.StopKey == (int)Keys.F9 && Theme.Settings.StopModifiers == 0)
+            {
+                status.Text = "Shortcuts are already F8 / F9.";
+                return;
+            }
+
+            TryUnregisterHotKeys();
+            Theme.Settings.StartKey = (int)Keys.F8;
+            Theme.Settings.StartModifiers = 0;
+            Theme.Settings.StopKey = (int)Keys.F9;
+            Theme.Settings.StopModifiers = 0;
+            TryRegisterHotKeys();
+
+            UpdateHotkeyButton(startHotkey, "Start typing", Theme.Settings.StartModifiers, Theme.Settings.StartKey);
+            UpdateHotkeyButton(stopHotkey, "Stop", Theme.Settings.StopModifiers, Theme.Settings.StopKey);
+            start.AccessibleName = $"Start typing ({startHotkey.Text})";
+            stop.AccessibleName = $"Stop typing ({stopHotkey.Text})";
+            Theme.SaveSettings();
+            status.Text = "Shortcuts reset — F8 starts, F9 stops.";
+        }
+
         private static bool IsModifierKey(Keys key)
         {
             return key == Keys.ControlKey || key == Keys.ShiftKey || key == Keys.Menu;
@@ -1871,14 +1962,26 @@ namespace TYPR
                 double baseDelayMs = 60000.0 / (double)cpm.Value;
                 double jitterPct = (double)jitter.Value / 100.0;
 
-                foreach (char ch in payload)
+                for (int i = 0; i < payload.Length; i++)
                 {
                     cts.Token.ThrowIfCancellationRequested();
+                    char ch = payload[i];
 
                     if (ch == '\r') continue;
                     if (ch == '\n') NativeMethods.SendVirtualKey((ushort)Keys.Enter);
                     else if (ch == '\t') NativeMethods.SendVirtualKey((ushort)Keys.Tab);
-                    else NativeMethods.SendUnicodeChar(ch);
+                    else
+                    {
+                        NativeMethods.SendUnicodeChar(ch);
+                        // Keep a surrogate pair's two halves together — a jitter delay between
+                        // them risks the receiving app/IME failing to recombine them into one
+                        // character (e.g. emoji outside the Basic Multilingual Plane).
+                        if (char.IsHighSurrogate(ch) && i + 1 < payload.Length && char.IsLowSurrogate(payload[i + 1]))
+                        {
+                            i++;
+                            NativeMethods.SendUnicodeChar(payload[i]);
+                        }
+                    }
 
                     double factor = 1.0 + ((rng.NextDouble() * 2.0 - 1.0) * jitterPct);
                     int wait = Math.Max(0, (int)(baseDelayMs * factor));
@@ -1886,24 +1989,30 @@ namespace TYPR
                 }
 
                 if (pressEnter.Checked) NativeMethods.SendVirtualKey((ushort)Keys.Enter);
-                status.Text = "Completed.";
+                if (!IsDisposed) status.Text = "Completed.";
             }
             catch (OperationCanceledException)
             {
-                status.Text = "Stopped.";
+                if (!IsDisposed) status.Text = "Stopped.";
             }
             catch (InvalidOperationException ex)
             {
-                status.Text = "Typing failed.";
-                MessageBox.Show(this, ex.Message, "TYPR - input failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (!IsDisposed)
+                {
+                    status.Text = "Typing failed.";
+                    MessageBox.Show(this, ex.Message, "TYPR - input failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
             finally
             {
                 cts.Dispose();
                 cts = null;
-                start.Enabled = true;
-                stop.Enabled = false;
-                SetTemplateTabsEnabled(true);
+                if (!IsDisposed)
+                {
+                    start.Enabled = true;
+                    stop.Enabled = false;
+                    SetTemplateTabsEnabled(true);
+                }
             }
         }
 
@@ -1995,8 +2104,46 @@ namespace TYPR
 
         public EditorTabPanel()
         {
+            // Panel disables ControlStyles.Selectable by default, which blocks keyboard focus
+            // entirely regardless of TabStop — re-enable it so tabs are keyboard-operable.
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
-                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
+                ControlStyles.Selectable, true);
+            TabStop = true;
+        }
+
+        protected override bool IsInputKey(Keys keyData) => keyData == Keys.Space || base.IsInputKey(keyData);
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
+            {
+                e.Handled = true;
+                OnClick(EventArgs.Empty);
+            }
+            else if (e.KeyCode == Keys.Delete)
+            {
+                e.Handled = true;
+                CloseRequested?.Invoke(this, EventArgs.Empty);
+            }
+            else if (e.KeyCode == Keys.F2)
+            {
+                e.Handled = true;
+                RenameRequested?.Invoke(this, EventArgs.Empty);
+            }
+            base.OnKeyDown(e);
+        }
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            Invalidate();
+            base.OnGotFocus(e);
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            Invalidate();
+            base.OnLostFocus(e);
         }
 
         protected override void OnPaintBackground(PaintEventArgs e)
@@ -2043,6 +2190,15 @@ namespace TYPR
             e.Graphics.DrawLine(closePen,
                 closeBounds.Right - inset, closeBounds.Top + inset,
                 closeBounds.Left + inset, closeBounds.Bottom - inset);
+
+            if (Focused)
+            {
+                var focusRect = ClientRectangle;
+                focusRect.Inflate(-2, -2);
+                using var focusPen = new Pen(Theme.FocusBorder, 1.6f);
+                using var focusPath = TabContainerPanel.CreateTopRoundedPath(focusRect);
+                e.Graphics.DrawPath(focusPen, focusPath);
+            }
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
@@ -2118,8 +2274,12 @@ namespace TYPR
 
         public AddTextButton()
         {
+            // Label disables ControlStyles.Selectable by default, which blocks keyboard focus
+            // entirely regardless of TabStop — re-enable it so this acts like a real button.
             SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer |
-                ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+                ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor |
+                ControlStyles.Selectable, true);
+            TabStop = true;
             hoverAnimation.Tick += (_, __) =>
             {
                 hoverOpacity = Math.Clamp(hoverOpacity + hoverTarget, 0, 180);
@@ -2128,6 +2288,30 @@ namespace TYPR
                     (hoverTarget < 0 && hoverOpacity == 0))
                     hoverAnimation.Stop();
             };
+        }
+
+        protected override bool IsInputKey(Keys keyData) => keyData == Keys.Space || base.IsInputKey(keyData);
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
+            {
+                e.Handled = true;
+                OnClick(EventArgs.Empty);
+            }
+            base.OnKeyDown(e);
+        }
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            Invalidate();
+            base.OnGotFocus(e);
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            Invalidate();
+            base.OnLostFocus(e);
         }
 
         protected override void OnPaintBackground(PaintEventArgs e)
@@ -2159,6 +2343,14 @@ namespace TYPR
                 pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
                 e.Graphics.DrawLine(pen, cx - halfLength, cy, cx + halfLength, cy);
                 e.Graphics.DrawLine(pen, cx, cy - halfLength, cx, cy + halfLength);
+            }
+
+            if (Focused)
+            {
+                var focusRect = ClientRectangle;
+                focusRect.Inflate(-2, -2);
+                using var focusPen = new Pen(Theme.FocusBorder, 1.6f);
+                e.Graphics.DrawEllipse(focusPen, focusRect);
             }
         }
 
@@ -2431,12 +2623,24 @@ namespace TYPR
         {
             FlatStyle = FlatStyle.Flat;
             FlatAppearance.BorderSize = 0;
-            TabStop = false;
+            TabStop = true;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         }
 
-        protected override bool ShowFocusCues => false;
+        protected override bool ShowFocusCues => true;
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            Invalidate();
+            base.OnGotFocus(e);
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            Invalidate();
+            base.OnLostFocus(e);
+        }
 
         protected override void OnPaintBackground(PaintEventArgs e)
         {
@@ -2489,6 +2693,15 @@ namespace TYPR
                     TextFormatFlags.SingleLine |
                     TextFormatFlags.NoPrefix |
                     TextFormatFlags.EndEllipsis);
+
+                if (Focused)
+                {
+                    var focusRect = bounds;
+                    focusRect.Inflate(-2, -2);
+                    using var focusPath = RoundedPanel.CreatePath(focusRect, Math.Max(0, CornerRadius - 2));
+                    using var focusPen = new Pen(Theme.FocusBorder, 1.6f);
+                    e.Graphics.DrawPath(focusPen, focusPath);
+                }
             }
         }
     }
@@ -2500,12 +2713,36 @@ namespace TYPR
         public ToggleCheckBox()
         {
             BackColor = Theme.SideBar;
-            TabStop = false;
+            TabStop = true;
             Cursor = Cursors.Hand;
             AccessibleRole = AccessibleRole.CheckButton;
             AccessibleName = "Press Enter when finished";
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
-                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+        }
+
+        protected override bool IsInputKey(Keys keyData) => keyData == Keys.Space || base.IsInputKey(keyData);
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
+            {
+                e.Handled = true;
+                OnClick(EventArgs.Empty);
+            }
+            base.OnKeyDown(e);
+        }
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            Invalidate();
+            base.OnGotFocus(e);
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            Invalidate();
+            base.OnLostFocus(e);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -2513,7 +2750,7 @@ namespace TYPR
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             var track = new Rectangle(0, Math.Max(0, (Height - 20) / 2), 38, 20);
             using (var path = RoundedPanel.CreatePath(track, 10))
-            using (var fill = new SolidBrush(Checked ? Theme.Accent : Theme.Input))
+            using (var fill = new SolidBrush(Checked ? Theme.Accent : Theme.SurfaceMuted))
             {
                 e.Graphics.FillPath(fill, path);
             }
@@ -2523,9 +2760,18 @@ namespace TYPR
                     e.Graphics.DrawPath(pen, path);
 
             int thumbX = Checked ? 21 : 3;
-            using (var thumb = new SolidBrush(Checked ? Theme.OnAccent : Theme.Text3))
+            using (var thumb = new SolidBrush(Checked ? Theme.OnAccent : Theme.Text))
             {
                 e.Graphics.FillEllipse(thumb, thumbX, track.Y + 3, 14, 14);
+            }
+
+            if (Focused)
+            {
+                var focusRect = track;
+                focusRect.Inflate(2, 2);
+                using var focusPen = new Pen(Theme.FocusBorder, 1.6f);
+                using var focusPath = RoundedPanel.CreatePath(focusRect, 11);
+                e.Graphics.DrawPath(focusPen, focusPath);
             }
         }
 
@@ -2892,10 +3138,24 @@ namespace TYPR
     internal sealed class ActivityBarButton : Control
     {
         private bool hovered;
+        private bool interactive = true;
 
         public ActivityBarButtonKind Kind { get; }
         public bool IsActive { get; set; }
         public bool IsDarkTheme { get; set; }
+
+        // Non-interactive buttons (e.g. a view indicator with nothing to switch to) get no
+        // hover/cursor/focus affordance, so they don't look clickable when they aren't.
+        public bool Interactive
+        {
+            get => interactive;
+            set
+            {
+                interactive = value;
+                Cursor = value ? Cursors.Hand : Cursors.Default;
+                TabStop = value;
+            }
+        }
 
         public ActivityBarButton(ActivityBarButtonKind kind)
         {
@@ -2906,15 +3166,43 @@ namespace TYPR
             BackColor = Theme.ActivityBar;
             Cursor = Cursors.Hand;
             Margin = Padding.Empty;
-            TabStop = false;
+            TabStop = true;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         }
 
+        protected override bool ShowFocusCues => true;
+        protected override bool IsInputKey(Keys keyData) => keyData == Keys.Space || base.IsInputKey(keyData);
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (interactive && (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space))
+            {
+                e.Handled = true;
+                OnClick(EventArgs.Empty);
+            }
+            base.OnKeyDown(e);
+        }
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            Invalidate();
+            base.OnGotFocus(e);
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            Invalidate();
+            base.OnLostFocus(e);
+        }
+
         protected override void OnMouseEnter(EventArgs e)
         {
-            hovered = true;
-            Invalidate();
+            if (interactive)
+            {
+                hovered = true;
+                Invalidate();
+            }
             base.OnMouseEnter(e);
         }
 
@@ -2930,20 +3218,28 @@ namespace TYPR
             var g = e.Graphics;
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-            Color bg = hovered ? Color.FromArgb(62, 62, 62) : BackColor;
+            Color bg = hovered ? Theme.ActivityBarHover : BackColor;
             using (var brush = new SolidBrush(bg))
                 g.FillRectangle(brush, ClientRectangle);
 
             if (IsActive)
-                using (var brush = new SolidBrush(Color.White))
+                using (var brush = new SolidBrush(Theme.Accent))
                     g.FillRectangle(brush, new Rectangle(0, 0, 2, Height));
 
-            Color glyph = IsActive ? Color.White : Theme.ActivityGlyph;
+            Color glyph = IsActive ? Theme.Text : Theme.ActivityGlyph;
             int cx = Width / 2;
             int cy = Height / 2;
 
             if (Kind == ActivityBarButtonKind.Settings) DrawGear(g, glyph, cx, cy);
             else DrawThemeGlyph(g, glyph, bg, cx, cy);
+
+            if (Focused && interactive)
+                using (var focusPen = new Pen(Theme.FocusBorder, 1.6f))
+                {
+                    var focusRect = ClientRectangle;
+                    focusRect.Inflate(-2, -2);
+                    g.DrawRectangle(focusPen, focusRect);
+                }
 
             base.OnPaint(e);
         }
@@ -2996,6 +3292,7 @@ namespace TYPR
         [STAThread]
         static void Main()
         {
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
