@@ -8,4 +8,9 @@
     <AssemblyName>TYPR</AssemblyName>
     <RootNamespace>TYPR</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The test project lives under tests/ and must not be compiled into the app. -->
+    <Compile Remove="tests/**" />
+    <InternalsVisibleTo Include="TYPR.Tests" />
+  </ItemGroup>
 </Project>

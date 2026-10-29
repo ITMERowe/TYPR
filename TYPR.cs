@@ -36,6 +36,8 @@ namespace TYPR
             "TYPR Kimi",
             "settings.json");
 
+        // Declared before Settings, with no initializer, so LoadSettings' value isn't overwritten.
+        private static bool settingsWritable;
         public static readonly UserSettings Settings = LoadSettings();
         public static bool Dark { get; private set; } = Settings.Theme switch
         {
@@ -57,20 +59,10 @@ namespace TYPR
 
         public static void SaveSettings()
         {
+            if (!settingsWritable) return;
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-                string json = JsonSerializer.Serialize(Settings, new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                });
-                // Write to a temp file and rename over the real one so a crash or power loss
-                // mid-write can't leave settings.json half-written and unparseable — that would
-                // silently wipe every saved text template on next launch (LoadSettings treats a
-                // corrupt file as "no settings").
-                string tempPath = SettingsPath + ".tmp";
-                File.WriteAllText(tempPath, json);
-                File.Move(tempPath, SettingsPath, overwrite: true);
+                SettingsStore.Save(SettingsPath, Settings);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
@@ -84,64 +76,16 @@ namespace TYPR
 
         private static UserSettings LoadSettings()
         {
-            try
-            {
-                if (!File.Exists(SettingsPath)) return new UserSettings();
-
-                var settings = JsonSerializer.Deserialize<UserSettings>(File.ReadAllText(SettingsPath))
-                    ?? new UserSettings();
-                if (settings.Theme != "System" && settings.Theme != "Light" && settings.Theme != "Dark")
-                    settings.Theme = "System";
-                if (!IsValidKey(settings.StartKey)) settings.StartKey = (int)Keys.F8;
-                if (!IsValidKey(settings.StopKey)) settings.StopKey = (int)Keys.F9;
-                settings.StartModifiers &= HotkeyModifiers.Supported;
-                settings.StopModifiers &= HotkeyModifiers.Supported;
-                if (settings.StartKey == settings.StopKey &&
-                    settings.StartModifiers == settings.StopModifiers)
-                {
-                    settings.StopKey = settings.StartKey == (int)Keys.F9
-                        ? (int)Keys.F10
-                        : (int)Keys.F9;
-                    settings.StopModifiers = 0;
-                }
-                if (settings.TextTemplates == null || settings.TextTemplates.Count == 0)
-                    settings.TextTemplates = new List<TextTemplate> { new TextTemplate { Name = "Text 1" } };
-                for (int i = 0; i < settings.TextTemplates.Count; i++)
-                {
-                    settings.TextTemplates[i] ??= new TextTemplate { Name = $"Text {i + 1}" };
-                    if (string.IsNullOrWhiteSpace(settings.TextTemplates[i].Name))
-                        settings.TextTemplates[i].Name = $"Text {i + 1}";
-                    else if (settings.TextTemplates[i].Name.StartsWith("Template ", StringComparison.OrdinalIgnoreCase) &&
-                        int.TryParse(settings.TextTemplates[i].Name.AsSpan("Template ".Length), out _))
-                        settings.TextTemplates[i].Name =
-                            $"Text {settings.TextTemplates[i].Name["Template ".Length..]}";
-                    settings.TextTemplates[i].Text ??= string.Empty;
-                }
-                settings.ActiveTextTemplate = Math.Clamp(
-                    settings.ActiveTextTemplate, 0, settings.TextTemplates.Count - 1);
-                return settings;
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException)
+            var settings = SettingsStore.Load(SettingsPath, out string? warning, out settingsWritable);
+            if (warning != null)
             {
                 MessageBox.Show(
-                    $"TYPR could not read its preferences. Default settings will be used.\n\n{ex.Message}",
+                    warning,
                     "TYPR - settings could not be loaded",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
-                return new UserSettings();
             }
-        }
-
-        private static bool IsValidKey(int value)
-        {
-            var key = (Keys)value;
-            return key != Keys.None &&
-                key != Keys.ControlKey &&
-                key != Keys.ShiftKey &&
-                key != Keys.Menu &&
-                key != Keys.LWin &&
-                key != Keys.RWin &&
-                Enum.IsDefined(typeof(Keys), key);
+            return settings;
         }
 
         private static bool DetectDark()
@@ -243,6 +187,106 @@ namespace TYPR
         private static Color Text3For(bool dark) => dark ? Color.FromArgb(128, 128, 128) : Color.FromArgb(120, 120, 120);
     }
 
+    // Reads, repairs and writes settings.json; no UI, so it can be tested against a temp folder.
+    internal static class SettingsStore
+    {
+        public static UserSettings Load(string path, out string? warning, out bool canSave)
+        {
+            warning = null;
+            canSave = true;
+            try
+            {
+                if (!File.Exists(path)) return new UserSettings();
+
+                var settings = JsonSerializer.Deserialize<UserSettings>(File.ReadAllText(path))
+                    ?? new UserSettings();
+                if (settings.Theme != "System" && settings.Theme != "Light" && settings.Theme != "Dark")
+                    settings.Theme = "System";
+                if (!IsValidKey(settings.StartKey)) settings.StartKey = (int)Keys.F8;
+                if (!IsValidKey(settings.StopKey)) settings.StopKey = (int)Keys.F9;
+                settings.StartModifiers &= HotkeyModifiers.Supported;
+                settings.StopModifiers &= HotkeyModifiers.Supported;
+                if (settings.StartKey == settings.StopKey &&
+                    settings.StartModifiers == settings.StopModifiers)
+                {
+                    settings.StopKey = settings.StartKey == (int)Keys.F9
+                        ? (int)Keys.F10
+                        : (int)Keys.F9;
+                    settings.StopModifiers = 0;
+                }
+                if (settings.TextTemplates == null || settings.TextTemplates.Count == 0)
+                    settings.TextTemplates = new List<TextTemplate> { new TextTemplate { Name = "Text 1" } };
+                for (int i = 0; i < settings.TextTemplates.Count; i++)
+                {
+                    settings.TextTemplates[i] ??= new TextTemplate { Name = $"Text {i + 1}" };
+                    if (string.IsNullOrWhiteSpace(settings.TextTemplates[i].Name))
+                        settings.TextTemplates[i].Name = $"Text {i + 1}";
+                    else if (settings.TextTemplates[i].Name.StartsWith("Template ", StringComparison.OrdinalIgnoreCase) &&
+                        int.TryParse(settings.TextTemplates[i].Name.AsSpan("Template ".Length), out _))
+                        settings.TextTemplates[i].Name =
+                            $"Text {settings.TextTemplates[i].Name["Template ".Length..]}";
+                    settings.TextTemplates[i].Text ??= string.Empty;
+                }
+                settings.ActiveTextTemplate = Math.Clamp(
+                    settings.ActiveTextTemplate, 0, settings.TextTemplates.Count - 1);
+                return settings;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException)
+            {
+                // The next save would write defaults over the unreadable file, so keep a copy
+                // first; if even that fails, refuse to save over it at all this session.
+                string? backup = TryKeepCopy(path);
+                canSave = backup != null;
+                warning = backup != null
+                    ? $"TYPR could not read its preferences and started with default settings. " +
+                      $"Your old file was kept as {Path.GetFileName(backup)} in {Path.GetDirectoryName(path)}.\n\n{ex.Message}"
+                    : $"TYPR could not read its preferences and started with default settings. " +
+                      $"To protect your saved texts, changes made now won't be saved.\n\n{ex.Message}";
+                return new UserSettings();
+            }
+        }
+
+        private static string? TryKeepCopy(string path)
+        {
+            string backup = $"{path}.{DateTime.Now:yyyyMMdd-HHmmss}.bad";
+            try
+            {
+                File.Copy(path, backup, overwrite: false);
+                return backup;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                return null;
+            }
+        }
+
+        public static void Save(string path, UserSettings settings)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            // Write to a temp file and rename over the real one so a crash or power loss
+            // mid-write can't leave settings.json half-written and unparseable.
+            string tempPath = path + ".tmp";
+            File.WriteAllText(tempPath, json);
+            File.Move(tempPath, path, overwrite: true);
+        }
+
+        private static bool IsValidKey(int value)
+        {
+            var key = (Keys)value;
+            return key != Keys.None &&
+                key != Keys.ControlKey &&
+                key != Keys.ShiftKey &&
+                key != Keys.Menu &&
+                key != Keys.LWin &&
+                key != Keys.RWin &&
+                Enum.IsDefined(typeof(Keys), key);
+        }
+    }
+
     internal sealed class UserSettings
     {
         public UserSettings() { }
@@ -252,7 +296,8 @@ namespace TYPR
         public int StartKey { get; set; } = (int)Keys.F8;
         public int StopModifiers { get; set; }
         public int StopKey { get; set; } = (int)Keys.F9;
-        public List<TextTemplate> TextTemplates { get; set; } = new();
+        // Never empty: the window reads the active tab on startup.
+        public List<TextTemplate> TextTemplates { get; set; } = new() { new TextTemplate { Name = "Text 1" } };
         public int ActiveTextTemplate { get; set; }
     }
 
@@ -269,6 +314,34 @@ namespace TYPR
         public const int Shift = 0x0004;
         public const int NoRepeat = 0x4000;
         public const int Supported = Alt | Control | Shift;
+    }
+
+    // Windows' default timer tick is ~15.6 ms, so every short wait rounds up to it and typing
+    // runs slower than the CPM setting. A 1 ms tick while typing keeps the pacing accurate and
+    // even; catching up in bursts instead would drop keys on remote desktops.
+    internal static class TimerResolution
+    {
+        [DllImport("winmm.dll")]
+        private static extern uint timeBeginPeriod(uint milliseconds);
+
+        [DllImport("winmm.dll")]
+        private static extern uint timeEndPeriod(uint milliseconds);
+
+        public static IDisposable Begin() => new Scope(timeBeginPeriod(1) == 0);
+
+        private sealed class Scope : IDisposable
+        {
+            private bool active;
+
+            public Scope(bool active) => this.active = active;
+
+            public void Dispose()
+            {
+                if (!active) return;
+                active = false;
+                timeEndPeriod(1);
+            }
+        }
     }
 
     internal static class NativeMethods
@@ -1566,7 +1639,7 @@ namespace TYPR
             button.AccessibleName = $"{name} hotkey: {button.Text}. Click to change.";
         }
 
-        private static string FormatHotkey(int modifiers, int keyValue)
+        internal static string FormatHotkey(int modifiers, int keyValue)
         {
             var parts = new System.Collections.Generic.List<string>();
             if ((modifiers & HotkeyModifiers.Control) != 0) parts.Add("Ctrl");
@@ -1961,6 +2034,7 @@ namespace TYPR
                 status.Text = $"Typing... {FormatHotkey(Theme.Settings.StopModifiers, Theme.Settings.StopKey)} to stop.";
                 double baseDelayMs = 60000.0 / (double)cpm.Value;
                 double jitterPct = (double)jitter.Value / 100.0;
+                using var preciseTimer = TimerResolution.Begin();
 
                 for (int i = 0; i < payload.Length; i++)
                 {
