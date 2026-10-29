@@ -22,3 +22,23 @@ Desktop.ini
 
 # Logs
 *.log
+
+# Secrets and signing: never commit
+.env
+.env.*
+*.pfx
+*.p12
+*.pem
+*.key
+
+# AI tooling and session notes: local to this machine, not part of the project
+.claude/
+.codex/
+.cursor/
+.impeccable/
+graphify-out/
+CLAUDE.md
+AGENTS.md
+HANDOFF.md
+ROADMAP.md
+PRODUCT.md

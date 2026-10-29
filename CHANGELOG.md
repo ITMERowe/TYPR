@@ -1,10 +1,18 @@
 # Changelog
 
-All notable changes to TYPR are documented in this file.
+All notable changes to TYPR are documented in this file. Each version starts with **Highlights**: a short list for users, shown first on the GitHub Release. The sections after it are the full list; put the biggest changes first in each.
 
-## [Unreleased] - 2026-10-06
+## Unreleased
+
+### Highlights
+- New VS Code-style interface with light and dark themes; follows Windows until you pick one
+- Save several texts in tabs: add, rename and delete them
+- Choose your own start and stop shortcuts, or reset them to F8 / F9
+- Download a portable exe or an installer; no separate .NET install needed
 
 ### Added
+- **Reset to F8 / F9** link under Shortcuts
+- Global shortcuts no longer start or stop typing while one of TYPR's own dialogs (rename, delete) is open
 - VS Code-inspired dark and light interface with rounded panels, subtle borders, and compact settings controls
 - Subtle windowed-mode outline matching VS Code's frame
 - Set tab-container fill/border and inactive tabs to `#191A1B`; set active tabs to `#111111`

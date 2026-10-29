@@ -35,7 +35,7 @@ TYPR is completely free: no paid tier, subscriptions, or ads. It has no telemetr
 ## Get started
 
 1. From [the latest GitHub release](https://github.com/ITMERowe/TYPR/releases/latest), download either `TYPR-Portable-win-x64.exe` or `TYPR-Setup-<version>-win-x64.exe`.
-2. Run the portable executable directly, or run the installer and follow its prompts. No separate .NET installation is needed.
+2. Run the portable executable directly, or run the installer and follow its prompts. No separate .NET installation is needed. The files aren't code-signed yet, so Windows SmartScreen may show "Windows protected your PC" the first time; choose **More info → Run anyway**. Each release lists SHA-256 checksums in `SHA256SUMS.txt`.
 3. Enter or select a text entry, then set the speed and start delay.
 4. Start typing with **Start typing** or your configured shortcut. Focus the target app before the countdown finishes.
 5. Stop with **Stop** or your configured stop shortcut.
@@ -54,7 +54,9 @@ Your saved text, shortcuts, and theme preference are stored locally in:
 %LOCALAPPDATA%\TYPR Kimi\settings.json
 ```
 
-TYPR does not transmit that settings file. The source code is available in this repository so you can inspect how the app works or build it yourself.
+TYPR does not transmit that settings file. It is plain, unencrypted JSON, and uninstalling TYPR leaves it in place; delete the folder to remove your saved texts. Speed, start delay, variation and the Enter option are not saved between runs. Full details: [privacy policy](PRIVACY.md).
+
+The source code is available in this repository so you can inspect how the app works or build it yourself.
 
 ## Requirements
 
@@ -77,7 +79,7 @@ Pushing a version tag in `vX.Y.Z` format (for example, `v1.2.3`) runs the GitHub
 
 ## Contributing
 
-Bug reports and practical feature requests are welcome. Please include your Windows version, steps to reproduce, and what you expected to happen. For code changes, open a pull request with a short description of the change.
+Bug reports and practical feature requests are welcome. Please include your Windows version, display scaling, the app you were typing into, steps to reproduce, and what you expected to happen. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, conventions and the checks to run. Report security problems privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
