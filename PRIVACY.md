@@ -18,7 +18,8 @@ TYPR stores your saved texts (each tab's name and text), your start and stop sho
 
 - **No network:** TYPR has no network features. There is no server, no account, no sign-in, no analytics, no advertising, no tracking and no automatic updates.
 - **Plain text:** the settings file is ordinary, unencrypted JSON. Anyone or any program with access to your Windows account can read it. Don't keep passwords or other secrets in TYPR's tabs if that matters to you.
-- **Not saved:** typing speed, start delay, typing variation and the "Press Enter when finished" option reset each time TYPR starts.
+- **Copies next to it:** each save keeps the previous file as `settings.json.bak`, so TYPR can recover if the file is damaged. While saving, a short-lived `settings.json.tmp` exists. If TYPR ever can't read the file, it keeps it as `settings.json.<date>.bad`. These copies can still hold text you have since deleted.
+- **Not saved:** typing speed, start delay, typing variation and the "End with Enter" option reset each time TYPR starts.
 
 ## What TYPR does with your text
 
@@ -27,7 +28,7 @@ TYPR stores your saved texts (each tab's name and text), your start and stop sho
 
 ## Deleting your data
 
-- Delete a text tab inside TYPR to remove its text from the settings file.
+- Delete a text tab inside TYPR to remove its text from the settings file. The `.bak` copy still holds it until TYPR saves once more (any later edit).
 - To remove everything, close TYPR and delete the `%LOCALAPPDATA%\TYPR Kimi` folder.
 - Uninstalling (installer version) or deleting the portable `.exe` does **not** delete that folder, so your texts are still there if you reinstall.
 

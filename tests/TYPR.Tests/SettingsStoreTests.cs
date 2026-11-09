@@ -109,7 +109,8 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal("System", settings.Theme);
         Assert.Equal((int)Keys.F8, settings.StartKey);
         Assert.Equal((int)Keys.F9, settings.StopKey);
-        Assert.Equal(HotkeyModifiers.Supported, settings.StartModifiers);
+        // An invalid key resets the whole shortcut, so its stored modifiers go too.
+        Assert.Equal(0, settings.StartModifiers);
     }
 
     [Fact]
@@ -147,5 +148,54 @@ public sealed class SettingsStoreTests : IDisposable
 
         Assert.False(canSave);
         Assert.NotNull(warning);
+    }
+
+    [Fact]
+    public void Load_CorruptFile_RecoversFromPreviousSave()
+    {
+        SettingsStore.Save(SettingsFile, new UserSettings { TextTemplates = new() { new() { Name = "Kept", Text = "a" } } });
+        SettingsStore.Save(SettingsFile, new UserSettings { TextTemplates = new() { new() { Name = "Latest", Text = "b" } } });
+        File.WriteAllText(SettingsFile, "{ not json");
+
+        var loaded = SettingsStore.Load(SettingsFile, out string? warning, out bool canSave);
+
+        Assert.Equal("Kept", Assert.Single(loaded.TextTemplates).Name);
+        Assert.Contains("restored", warning);
+        Assert.True(canSave);
+    }
+
+    [Fact]
+    public void Save_KeepsThePreviousFileAsBak()
+    {
+        SettingsStore.Save(SettingsFile, new UserSettings { TextTemplates = new() { new() { Name = "First", Text = "a" } } });
+        SettingsStore.Save(SettingsFile, new UserSettings { TextTemplates = new() { new() { Name = "Second", Text = "b" } } });
+
+        Assert.Contains("First", File.ReadAllText(SettingsFile + ".bak"));
+        Assert.Contains("Second", File.ReadAllText(SettingsFile));
+        Assert.False(File.Exists(SettingsFile + ".tmp"));
+    }
+
+    [Fact]
+    public void Load_BareLetterShortcut_ResetToF8()
+    {
+        // A bare "A" as the start shortcut would start a run on every A typed anywhere.
+        File.WriteAllText(SettingsFile, """{"StartKey":65,"StartModifiers":0}""");
+
+        var loaded = SettingsStore.Load(SettingsFile, out _, out _);
+
+        Assert.Equal((int)Keys.F8, loaded.StartKey);
+    }
+
+    [Fact]
+    public void Load_WinComboAndPauseAlone_AreKept()
+    {
+        // Win+Alt+T (8|1, 0x54) and a bare Pause are valid shortcuts.
+        File.WriteAllText(SettingsFile, """{"StartKey":84,"StartModifiers":9,"StopKey":19,"StopModifiers":0}""");
+
+        var loaded = SettingsStore.Load(SettingsFile, out _, out _);
+
+        Assert.Equal(84, loaded.StartKey);
+        Assert.Equal(HotkeyModifiers.Win | HotkeyModifiers.Alt, loaded.StartModifiers);
+        Assert.Equal((int)Keys.Pause, loaded.StopKey);
     }
 }

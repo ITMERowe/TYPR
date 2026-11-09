@@ -15,8 +15,12 @@ public sealed class TimerResolutionTests
 
         // While typing, TYPR's window sits behind the target. Windows 11 ignores timer
         // precision requests from processes whose windows are hidden or fully covered.
-        using var hiddenWindow = new System.Windows.Forms.Form();
-        _ = hiddenWindow.Handle;
+        using var hiddenWindow = new System.Windows.Forms.Form
+        {
+            ShowInTaskbar = false,
+            WindowState = System.Windows.Forms.FormWindowState.Minimized
+        };
+        hiddenWindow.Show();
 
         using (TimerResolution.Begin())
         {
