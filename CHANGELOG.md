@@ -27,6 +27,9 @@ All notable changes to TYPR are documented in this file. Each version starts wit
 - Persistent text tabs with controls to add, delete, and rename saved text
 
 ### Changed
+- Release exe is one compressed file (72 MB instead of 153 MB plus five loose DLLs) and carries the release version; build settings live in one publish profile
+- Release notes come from this changelog; a tag without a matching section fails before building
+- Window edges resize again, without flicker; footer buttons and character count are taller
 - Promoted the editor, activity bar, settings sidebar, and action bar to the only TYPR interface
 - Made typing use only the active text tab and disabled tab actions during typing
 - Matched the editor tabs to VS Code: the active tab uses a distinct outlined surface, while inactive tabs sit on the darker strip

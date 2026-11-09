@@ -5,13 +5,20 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push to the same branch or PR replaces a run still in progress.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -22,21 +29,17 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore
-        run: dotnet restore TYPR.csproj
-
-      - name: Build
-        run: dotnet build TYPR.csproj -c Release --no-restore
-
       - name: Test
-        # Timing tests measure real time and are too noisy on shared CI machines.
+        # Builds the app and the tests. Timing tests measure real time and are too noisy on shared CI machines.
         run: dotnet test tests/TYPR.Tests/TYPR.Tests.csproj -c Release --filter "Category!=Timing"
 
-      - name: Publish Windows x64
-        run: dotnet publish TYPR.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=false -o artifacts/win-x64
+      - name: Publish
+        run: dotnet publish TYPR.csproj -p:PublishProfile=win-x64
 
-      - name: Upload artifact
+      - name: Upload TYPR.exe
         uses: actions/upload-artifact@v4
         with:
           name: TYPR-win-x64
-          path: artifacts/win-x64/TYPR.exe
+          path: publish/win-x64/TYPR.exe
+          if-no-files-found: error
+          retention-days: 14

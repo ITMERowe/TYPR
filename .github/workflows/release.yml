@@ -1,5 +1,6 @@
 name: Release
 
+# Push a vX.Y.Z tag to publish a release. CHANGELOG.md must have a "## X.Y.Z" section first.
 on:
   push:
     tags:
@@ -8,9 +9,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -21,7 +27,7 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Validate release version
+      - name: Read version and release notes
         id: version
         shell: pwsh
         run: |
@@ -30,21 +36,43 @@ jobs:
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
             throw "Release tag must use semantic version format vX.Y.Z (received '$tag')."
           }
+
+          # The CHANGELOG section for this version, without its heading, becomes the release notes.
+          $lines = Get-Content CHANGELOG.md
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match "^## \[?$([regex]::Escape($version))\]?(\s|$)") { $start = $i + 1; break }
+          }
+          if ($start -lt 0) {
+            throw "CHANGELOG.md has no '## $version' section. Add it before tagging."
+          }
+          $end = $lines.Count
+          for ($i = $start; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^## ') { $end = $i; break }
+          }
+          if ($end -le $start) {
+            throw "CHANGELOG.md section '## $version' is empty."
+          }
+          New-Item -ItemType Directory -Force artifacts/release | Out-Null
+          ($lines[$start..($end - 1)] -join "`n").Trim() | Set-Content -Encoding utf8 artifacts/notes.md
+
           "value=$version" >> $env:GITHUB_OUTPUT
 
-      - name: Publish portable Windows x64 app
-        run: dotnet publish TYPR.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=false -o artifacts/portable
+      - name: Test
+        # Timing tests measure real time and are too noisy on shared CI machines.
+        run: dotnet test tests/TYPR.Tests/TYPR.Tests.csproj -c Release --filter "Category!=Timing"
 
-      - name: Prepare release files
+      - name: Publish TYPR.exe
+        run: dotnet publish TYPR.csproj -p:PublishProfile=win-x64 -p:Version=${{ steps.version.outputs.value }}
+
+      - name: Prepare portable exe
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force artifacts/release | Out-Null
-          Copy-Item artifacts/portable/TYPR.exe artifacts/release/TYPR-Portable-win-x64.exe
+        run: Copy-Item publish/win-x64/TYPR.exe artifacts/release/TYPR-Portable-win-x64.exe
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
 
-      - name: Build Inno Setup installer
+      - name: Build installer
         shell: pwsh
         env:
           APP_VERSION: ${{ steps.version.outputs.value }}
@@ -67,9 +95,16 @@ jobs:
             "$hash  $($asset.Name)" | Add-Content -Encoding ascii artifacts/release/SHA256SUMS.txt
           }
 
+      # GitHub's own CLI (preinstalled on the runner) instead of a third-party action with write access.
+      # CHANGELOG notes come first; --generate-notes appends the list of merged changes.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: |
-            artifacts/release/*
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}"
+          (Get-ChildItem artifacts/release -File).FullName
+          --title "TYPR ${{ steps.version.outputs.value }}"
+          --notes-file artifacts/notes.md
+          --generate-notes
+          --verify-tag

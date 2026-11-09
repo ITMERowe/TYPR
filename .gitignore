@@ -42,3 +42,7 @@ AGENTS.md
 HANDOFF.md
 ROADMAP.md
 PRODUCT.md
+
+# Local tool state
+.omc/
+.serena/

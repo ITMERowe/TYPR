@@ -8,6 +8,16 @@
     <AssemblyName>TYPR</AssemblyName>
     <RootNamespace>TYPR</RootNamespace>
   </PropertyGroup>
+  <PropertyGroup>
+    <!-- Local builds are 0.0.0; release.yml passes -p:Version from the vX.Y.Z tag. -->
+    <Version>0.0.0</Version>
+    <Product>TYPR</Product>
+    <Company>ITMERowe</Company>
+    <Authors>ITMERowe</Authors>
+    <Description>Free, offline auto typer for Windows</Description>
+    <Copyright>Copyright (c) ITMERowe</Copyright>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
   <ItemGroup>
     <!-- The test project lives under tests/ and must not be compiled into the app. -->
     <Compile Remove="tests/**" />
