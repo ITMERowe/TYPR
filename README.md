@@ -17,6 +17,11 @@
   <img alt="Free" src="https://img.shields.io/badge/price-free-brightgreen">
 </p>
 
+<p align="center">
+  <img alt="TYPR in the dark theme" src="docs/screenshots/dark.png" width="49%">
+  <img alt="TYPR in the light theme" src="docs/screenshots/light.png" width="49%">
+</p>
+
 ## What it does
 
 TYPR sends text as real keystrokes to the app in front. Use it for remote desktops, virtual machines, consoles and web forms that block paste.
@@ -25,7 +30,7 @@ TYPR sends text as real keystrokes to the app in front. Use it for remote deskto
 - **Saved texts in tabs:** add, rename, delete and drag to reorder. Only the open tab is typed.
 - **Global shortcuts:** start with **F8** and stop with **F9**, or set your own.
 - **Safe stops:** typing stops if the target window loses focus, and **Stop** always works.
-- **Light and dark themes:** follows Windows until you pick one.
+- **Light and dark themes:** follows Windows until you pick one. Optional line numbers, and the window reopens at the size you left it.
 - **Free and private:** no account, ads, telemetry or network access.
 
 > TYPR types into whichever window has focus. Check the target before you start, and follow that app's rules.
@@ -70,7 +75,7 @@ Both include .NET, so you don't install anything else. The files aren't code-sig
 
 TYPR works fully offline. It has no telemetry, analytics, auto-updater or background service, and it doesn't use the clipboard: it types through the Windows `SendInput` API.
 
-Your texts, shortcuts and theme are saved on your PC only, in plain JSON:
+Your texts, shortcuts, theme and window size are saved on your PC only, in plain JSON:
 
 ```text
 %LOCALAPPDATA%\TYPR Kimi\settings.json
@@ -92,7 +97,7 @@ The result is one self-contained `TYPR.exe`. Its build settings live in `Propert
 
 ## Releases
 
-1. In `CHANGELOG.md`, rename `## Unreleased` to `## X.Y.Z (date)`.
+1. In `CHANGELOG.md`, add a `## X.Y.Z (date)` section with Highlights first.
 2. Push a `vX.Y.Z` tag.
 
 The release workflow runs the tests, builds the portable exe and the installer, writes `SHA256SUMS.txt`, and publishes a GitHub Release with that changelog section as its notes. Every push to `main` also runs the tests and uploads a test build as a workflow artifact.

@@ -29,7 +29,7 @@ Your real saved texts live in `%LOCALAPPDATA%\TYPR Kimi\settings.json`, and a de
 2. Keep the change focused: one fix or feature per pull request.
 3. Follow the existing conventions in `TYPR.cs`:
    - the UI is built in code (no designer files); new controls follow the custom controls already there;
-   - colours from `Theme`, spacing from `UiSpacing`, font sizes from `UiTypography`; check both light and dark;
+   - colours from `Theme`, spacing from `UiSpacing`, control heights from `UiSize`, radii from `UiRadius`, fonts from `UiFont` (no raw pixel or colour values); check both light and dark and the narrow-window layout;
    - every control works from the keyboard and has an accessible name;
    - ask before anything destructive (deleting a text tab with text in it).
 4. Typing and data safety:
@@ -46,9 +46,10 @@ Keep TYPR focused on transparent keyboard-input automation. Features that add hi
 
 ```powershell
 dotnet build -c Release
+dotnet test tests/TYPR.Tests/TYPR.Tests.csproj
 ```
 
-CI builds the app on every push and pull request. Then check the flows you touched in the running app:
+CI builds the app and runs the tests on every push and pull request. Then check the flows you touched in the running app:
 
 - light and dark theme, and switching between them;
 - a long text (10,000+ characters) and several text tabs;
