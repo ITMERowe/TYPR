@@ -1,6 +1,10 @@
 # TYPR
 
 <p align="center">
+  <img alt="TYPR" src="docs/screenshots/01-slide.png">
+</p>
+
+<p align="center">
   <strong>Free, offline auto typer for Windows.</strong><br>
   Types your saved text into the focused window, for places where paste doesn't work.
 </p>
@@ -15,11 +19,6 @@
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="Free" src="https://img.shields.io/badge/price-free-brightgreen">
-</p>
-
-<p align="center">
-  <img alt="TYPR in the dark theme" src="docs/screenshots/dark.png" width="49%">
-  <img alt="TYPR in the light theme" src="docs/screenshots/light.png" width="49%">
 </p>
 
 ## What it does
