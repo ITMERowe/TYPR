@@ -19,29 +19,43 @@ namespace TYPR
         public const int Medium = 12;  // --s3
         public const int Large = 16;   // --s4
         public const int XLarge = 20;  // --s5
-        public const int XXLarge = 24; // --s6
+        // Not a step: a Label draws its text this far in from its left edge, so text that must line up
+        // with a box edge (an icon tile, a field) sits this much less far in. Visible gaps stay on the scale.
+        public const int LabelInset = 3;
+    }
+
+    // Minimum heights, so every control reads as a rectangle with rounded corners (radius 6), never a pill.
+    internal static class UiSize
+    {
+        public const int Button = 40;  // outer height of a button, focus-ring room included
+        public const int Keycap = 32;  // a shortcut key in the sidebar
+        public const int Field = 30;   // a text or number box
+        public const int Tile = 26;    // icon tiles and icon-button hover squares: a keycap's face height
     }
 
     internal static class UiRadius
     {
         // CNTR's 10/14/20 scaled to TYPR's denser desktop parts (radius about a quarter of the height).
-        public const int Small = 6;   // --r-sm: tabs, keycaps, small controls
-        public const int Medium = 8;  // --r-md: buttons, inputs
+        public const int Small = 6;   // --r-sm: buttons, inputs, tabs, keycaps, chips, icon tiles
         public const int Large = 12;  // --r-lg: cards
+        // Glyph-sized parts below --r-sm.
+        public const int Logo = 5;    // the 20px logo square
+        public const int XSmall = 4;  // a tab's 20px close button
     }
 
     internal static class UiFont
     {
         // Windows 11's UI face (Segoe UI on Windows 10). The type is TYPR's own; only colour, corners and motion follow CNTR.
         private static readonly FontFamily Regular = new FontFamily(FirstInstalled("Segoe UI Variable Text", "Segoe UI"));
-        private static readonly FontFamily Strong = Regular;
-        public static readonly Font Meta = new Font(Regular, 9f);                          // --fs-xs: meta lines
-        public static readonly Font Label = new Font(Strong, 9f, FontStyle.Bold);          // --fs-xs bold: chips, group titles
-        public static readonly Font Small = new Font(Regular, 9.75f);                      // --fs-sm: rows, tabs, status
-        public static readonly Font SmallBold = new Font(Strong, 9.75f, FontStyle.Bold);   // --fs-sm bold: values, keycaps
-        public static readonly Font Body = new Font(Regular, 10.5f);                         // --fs-md
-        public static readonly Font Button = new Font(Strong, 9.75f, FontStyle.Bold);        // --fs-md bold: buttons
-        public static readonly Font Heading = new Font(Strong, 12f, FontStyle.Bold);       // --fs-lg bold: dialog titles
+        // Semibold, not Bold: bold Segoe is heavy next to the 400-weight text. Falls back to Bold when the face is missing.
+        private static readonly bool HasSemibold = FirstInstalled("Segoe UI Semibold", "") == "Segoe UI Semibold";
+        private static readonly FontFamily Strong = HasSemibold ? new FontFamily("Segoe UI Semibold") : Regular;
+        private static readonly FontStyle StrongStyle = HasSemibold ? FontStyle.Regular : FontStyle.Bold;
+        public static readonly Font Label = new Font(Strong, 9f, StrongStyle);             // --fs-xs semibold: chips, group titles, logo
+        public static readonly Font Small = new Font(Regular, 9.75f);                      // --fs-sm: rows, tabs, status, dialog text, errors
+        public static readonly Font SmallBold = new Font(Strong, 9.75f, StrongStyle);      // --fs-sm semibold: values, wordmark
+        public static readonly Font Button = new Font(Strong, 9.75f, StrongStyle);         // --fs-sm semibold: buttons, keycaps
+        public static readonly Font Heading = new Font(Strong, 12f, StrongStyle);          // --fs-lg semibold: dialog titles
         public static readonly Font Editor = new Font(FirstInstalled("Consolas", "Courier New"), 10.5f); // VS Code's Windows default, 14px
         public static readonly Font Icon = new Font(FirstInstalled("Segoe Fluent Icons", "Segoe MDL2 Assets"), 10f); // Windows' own icon font
 
@@ -59,7 +73,6 @@ namespace TYPR
     internal static class Motion
     {
         public const int Tap = 120;    // --dur-tap: presses
-        public const int Short = 200;  // --dur-1: small state changes
         public const int Liquid = 340; // --dur-liquid: the switch knob
 
         // Windows' "Animation effects" setting stands in for prefers-reduced-motion.
@@ -102,8 +115,6 @@ namespace TYPR
             };
         }
 
-        public bool Running => timer.Enabled;
-
         public void Run(int durationMs, Action<double> onStep)
         {
             step = onStep;
@@ -132,57 +143,60 @@ namespace TYPR
         // Declared before Settings, with no initializer, so LoadSettings' value isn't overwritten.
         private static bool settingsWritable;
         public static readonly UserSettings Settings = LoadSettings();
-        public static bool Dark { get; private set; } = Settings.Theme switch
+        public static bool Dark { get; private set; } = IsDark(Settings.Theme);
+
+        public static void SetMode(string mode)
+        {
+            Settings.Theme = mode;
+            Dark = IsDark(mode);
+        }
+
+        private static bool IsDark(string mode) => mode switch
         {
             "Dark" => true,
             "Light" => false,
             _ => DetectDark()
         };
 
-        public static void SetMode(string mode)
-        {
-            Settings.Theme = mode;
-            Dark = mode switch
-            {
-                "Dark" => true,
-                "Light" => false,
-                _ => DetectDark()
-            };
-        }
-
         private static bool saveWarned;
 
-        public static void SaveSettings()
+        // False when nothing was written: saving is off this session, or the disk refused.
+        public static bool SaveSettings()
         {
-            if (!settingsWritable) return;
+            if (!settingsWritable) return false;
             try
             {
                 SettingsStore.Save(SettingsPath, Settings);
+                return true;
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
-                if (saveWarned) return;
-                saveWarned = true;
-                MessageBox.Show(
-                    $"TYPR could not save your preferences. Changes will apply for this session only.\n\n{ex.Message}",
-                    "TYPR - settings could not be saved",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                if (!saveWarned)
+                {
+                    saveWarned = true;
+                    ThemedDialog.Inform(Form.ActiveForm, "Settings could not be saved",
+                        $"TYPR could not save your preferences. Changes will apply for this session only.\n\n{ex.Message}");
+                }
+                return false;
             }
         }
 
         private static UserSettings LoadSettings()
         {
             var settings = SettingsStore.Load(SettingsPath, out string? warning, out settingsWritable);
-            if (warning != null)
-            {
-                MessageBox.Show(
-                    warning,
-                    "TYPR - settings could not be loaded",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-            }
+            // Runs while Theme is still initialising, so the themed dialog waits until the window is shown.
+            startupWarning = warning;
             return settings;
+        }
+
+        private static string? startupWarning;
+
+        public static void ShowStartupWarning(IWin32Window owner)
+        {
+            if (startupWarning == null) return;
+            string message = startupWarning;
+            startupWarning = null;
+            ThemedDialog.Inform(owner, "Settings could not be loaded", message);
         }
 
         private static bool DetectDark()
@@ -213,20 +227,34 @@ namespace TYPR
         public static Color Text       => Dark ? Rgb(0xe7e7e7) : Rgb(0x1e1e1e);
         public static Color Text2      => Dark ? Rgb(0xcccccc) : Rgb(0x3b3b3b);
         public static Color Text3      => Dark ? Rgb(0x9d9d9d) : Rgb(0x616161);
-        public static Color Accent     => Dark ? Rgb(0x8b93ff) : Rgb(0x4338ca);
-        public static Color OnAccent   => Dark ? Rgb(0x12143a) : Rgb(0xffffff);
+        // Watermelon neon #ff2e63 in both themes. Dark ink on it is 5.3:1 (white would be 3.6:1); as a shape it is 3.6:1 on white.
+        public static Color Accent     => Rgb(0xff2e63);
+        public static Color OnAccent   => Rgb(0x1f0710);
+        // The accent as text: the same hue, darkened on light surfaces to 5.3:1.
+        public static Color AccentText => Dark ? Rgb(0xff2e63) : Rgb(0xd4144a);
         public static Color Positive   => Dark ? Rgb(0x4ade80) : Rgb(0x116329);
         public static Color Negative   => Dark ? Rgb(0xff6b5e) : Rgb(0xc72c1c);
         public static Color OnNegative => Dark ? Rgb(0x1d0806) : Rgb(0xffffff);
-
-        // TYPR's logo mark (a white T on a blue square, PRODUCT.md), outside the palette like CNTR's blue cross.
-        public static Color Logo => Rgb(0x007acc);
 
         // The window's 1px DWM border: --line-strong over --bg, made opaque.
         public static Color WindowBorder => Blend(LineStrong, Bg);
 
         // Desktop hover (CNTR is touch-first and has none): a colour moved 12% toward --text.
         public static Color Hover(Color color) => Blend(Color.FromArgb(31, Text), color);
+
+        // Windows' own close-button red, for the title bar's close on hover.
+        public static Color CloseHover => Rgb(0xc42b1c);
+
+        // Layered effects, each strength set in one place.
+        public static Color Scrim => Color.FromArgb(Dark ? 120 : 64, 0, 0, 0);   // dims the editor behind the drawer
+        public static Color Shadow => Color.FromArgb(Dark ? 110 : 48, 0, 0, 0);  // the drawer's soft edge
+        public static Color Tile(Color tint, Color ground) => Blend(Color.FromArgb(Dark ? 46 : 30, tint), ground); // icon tiles
+        public static Color LockedOn => Blend(Color.FromArgb(110, Text3), Surface2); // a locked switch's on fill
+
+        // --text-3 at 190 is >= 3:1 on --surface-1 and --bg in both themes (3.28:1 at the lowest, light
+        // --surface-1): the slider rail and the resting scroll thumb. 220 while the thumb is hovered or dragged.
+        public const int RailAlpha = 190;
+        public const int RailActiveAlpha = 220;
 
         public static Color Blend(Color top, Color bottom)
         {
@@ -249,8 +277,12 @@ namespace TYPR
             canSave = true;
             try
             {
-                if (!File.Exists(path)) return new UserSettings();
-                return Read(path);
+                if (File.Exists(path)) return Read(path);
+                // A save cut off between its two renames leaves only the .bak behind.
+                if (!File.Exists(path + ".bak")) return new UserSettings();
+                var restored = Read(path + ".bak");
+                warning = "TYPR could not find its preferences and restored the copy from before the last save.";
+                return restored;
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException)
             {
@@ -293,37 +325,38 @@ namespace TYPR
                 throw new IOException("The settings file is too large to be TYPR's.");
             var settings = JsonSerializer.Deserialize<UserSettings>(File.ReadAllText(path))
                 ?? new UserSettings();
+            if (settings.Theme != "System" && settings.Theme != "Light" && settings.Theme != "Dark")
+                settings.Theme = "System";
+            if (settings.WindowWidth < 560 || settings.WindowHeight < 640 ||
+                settings.WindowWidth > 16384 || settings.WindowHeight > 16384)
+                settings.WindowWidth = settings.WindowHeight = 0;
+            settings.StartModifiers &= HotkeyModifiers.Supported;
+            settings.StopModifiers &= HotkeyModifiers.Supported;
+            if (!IsValidKey(settings.StartKey, settings.StartModifiers)) { settings.StartKey = (int)Keys.F8; settings.StartModifiers = 0; }
+            if (!IsValidKey(settings.StopKey, settings.StopModifiers)) { settings.StopKey = (int)Keys.F9; settings.StopModifiers = 0; }
+            if (settings.StartKey == settings.StopKey &&
+                settings.StartModifiers == settings.StopModifiers)
             {
-                if (settings.Theme != "System" && settings.Theme != "Light" && settings.Theme != "Dark")
-                    settings.Theme = "System";
-                settings.StartModifiers &= HotkeyModifiers.Supported;
-                settings.StopModifiers &= HotkeyModifiers.Supported;
-                if (!IsValidKey(settings.StartKey, settings.StartModifiers)) { settings.StartKey = (int)Keys.F8; settings.StartModifiers = 0; }
-                if (!IsValidKey(settings.StopKey, settings.StopModifiers)) { settings.StopKey = (int)Keys.F9; settings.StopModifiers = 0; }
-                if (settings.StartKey == settings.StopKey &&
-                    settings.StartModifiers == settings.StopModifiers)
-                {
-                    settings.StopKey = settings.StartKey == (int)Keys.F9
-                        ? (int)Keys.F10
-                        : (int)Keys.F9;
-                    settings.StopModifiers = 0;
-                }
-                if (settings.TextTemplates == null || settings.TextTemplates.Count == 0)
-                    settings.TextTemplates = new List<TextTemplate> { new TextTemplate { Name = "Text 1" } };
-                for (int i = 0; i < settings.TextTemplates.Count; i++)
-                {
-                    settings.TextTemplates[i] ??= new TextTemplate { Name = $"Text {i + 1}" };
-                    if (string.IsNullOrWhiteSpace(settings.TextTemplates[i].Name))
-                        settings.TextTemplates[i].Name = $"Text {i + 1}";
-                    else if (settings.TextTemplates[i].Name.StartsWith("Template ", StringComparison.OrdinalIgnoreCase) &&
-                        int.TryParse(settings.TextTemplates[i].Name.AsSpan("Template ".Length), out _))
-                        settings.TextTemplates[i].Name =
-                            $"Text {settings.TextTemplates[i].Name["Template ".Length..]}";
-                    settings.TextTemplates[i].Text ??= string.Empty;
-                }
-                settings.ActiveTextTemplate = Math.Clamp(
-                    settings.ActiveTextTemplate, 0, settings.TextTemplates.Count - 1);
+                settings.StopKey = settings.StartKey == (int)Keys.F9
+                    ? (int)Keys.F10
+                    : (int)Keys.F9;
+                settings.StopModifiers = 0;
             }
+            if (settings.TextTemplates == null || settings.TextTemplates.Count == 0)
+                settings.TextTemplates = new List<TextTemplate> { new TextTemplate { Name = "Text 1" } };
+            for (int i = 0; i < settings.TextTemplates.Count; i++)
+            {
+                settings.TextTemplates[i] ??= new TextTemplate { Name = $"Text {i + 1}" };
+                if (string.IsNullOrWhiteSpace(settings.TextTemplates[i].Name))
+                    settings.TextTemplates[i].Name = $"Text {i + 1}";
+                else if (settings.TextTemplates[i].Name.StartsWith("Template ", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(settings.TextTemplates[i].Name.AsSpan("Template ".Length), out _))
+                    settings.TextTemplates[i].Name =
+                        $"Text {settings.TextTemplates[i].Name["Template ".Length..]}";
+                settings.TextTemplates[i].Text ??= string.Empty;
+            }
+            settings.ActiveTextTemplate = Math.Clamp(
+                settings.ActiveTextTemplate, 0, settings.TextTemplates.Count - 1);
             return settings;
         }
 
@@ -380,6 +413,12 @@ namespace TYPR
         // Never empty: the window reads the active tab on startup.
         public List<TextTemplate> TextTemplates { get; set; } = new() { new TextTemplate { Name = "Text 1" } };
         public int ActiveTextTemplate { get; set; }
+        // Window size when last closed; 0 = never saved, use the default size.
+        public int WindowWidth { get; set; }
+        public int WindowHeight { get; set; }
+        public bool WindowMaximized { get; set; }
+        // Files from before the setting existed load it as false (off).
+        public bool ShowLineNumbers { get; set; }
     }
 
     internal sealed class TextTemplate
@@ -649,6 +688,9 @@ namespace TYPR
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         public static extern IntPtr SendMessage(IntPtr hWnd, int message, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int message, IntPtr wParam, ref RECT lParam);
+
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
 
@@ -736,7 +778,7 @@ namespace TYPR
             }
 
             string detail = error == 0
-                ? "Windows blocked or rejected the synthetic keyboard input."
+                ? "Windows blocked the keys TYPR sent."
                 : new System.ComponentModel.Win32Exception(error).Message;
             throw new InvalidOperationException($"Windows accepted {sent} of {inputs.Length} keyboard events. {detail}");
         }
@@ -757,6 +799,8 @@ namespace TYPR
         private readonly Slider jitter = new Slider();
         private readonly Label jitterValue = new Label();
         private readonly ToggleCheckBox pressEnter = new ToggleCheckBox();
+        private readonly ToggleCheckBox lineNumbers = new ToggleCheckBox();
+        private readonly LineNumberGutter lineGutter = new LineNumberGutter();
         private readonly RoundedButton start = new RoundedButton { Kind = ButtonKind.Primary };
         private readonly RoundedButton stop = new RoundedButton { Kind = ButtonKind.Secondary };
         private readonly RoundedButton startHotkey = new RoundedButton { Kind = ButtonKind.Keycap };
@@ -785,15 +829,14 @@ namespace TYPR
         private readonly AddTextButton addTemplateButton = new AddTextButton();
         private readonly LinkLabel resetHotkeysLink = new LinkLabel();
         private Control? windowContent;
+        private RoundedPanel? editorCard;
         private TabStripPanel templateTabs = null!;
         private CancellationTokenSource? cts;
         private readonly Random rng = new Random();
         private bool hotkeysRegistered;
         private bool loadingTemplate;
-        // Global hotkeys are registered on this top-level window and fire via WM_HOTKEY
-        // regardless of which child window has focus, so a TYPR modal dialog (e.g. rename)
-        // being open doesn't stop F8/F9 from starting/stopping typing underneath it.
-        private bool modalDialogOpen;
+        // Last non-minimized state, so maximize, minimize, close still reopens maximized.
+        private bool lastMaximized;
 
         private const int HOTKEY_START = 1;
         private const int HOTKEY_STOP = 2;
@@ -816,16 +859,16 @@ namespace TYPR
             ClientSize = new Size(1020, 700);
             MinimumSize = new Size(560, 640);
             StartPosition = FormStartPosition.CenterScreen;
+            RestoreWindowSize();
             BackColor = Theme.WindowBorder;
             Font = UiFont.Small;
             maximizeButton.Click += (_, __) => ToggleWindowState();
             Resize += (_, __) =>
             {
                 bool maximized = WindowState == FormWindowState.Maximized;
+                if (WindowState != FormWindowState.Minimized) lastMaximized = maximized;
                 maximizeButton.IsMaximized = maximized;
                 tips.SetToolTip(maximizeButton, maximized ? "Restore down" : "Maximize");
-                if (windowContent != null)
-                    windowContent.Margin = maximized ? Padding.Empty : new Padding(1);
                 ApplyResponsive();
             };
 
@@ -834,29 +877,39 @@ namespace TYPR
             sidebarToggle.AccessibleRole = AccessibleRole.PushButton;
             sidebarToggle.AccessibleName = "Show settings";
             sidebarToggle.Click += (_, __) => SetSidebarOpen(!sidebarOpen);
+            sidebarToggle.Leave += (_, __) => CloseSidebarIfFocusLeft();
             tips.SetToolTip(sidebarToggle, "Settings (Ctrl+B)");
 
             cpm.Minimum = 30;
             cpm.Maximum = 20000;
             cpm.Value = 1200;
+            cpm.PageStep = 100;
+            cpm.Unit = "cpm";
             cpm.FieldName = "Typing speed, characters per minute";
+            cpm.Clamped += (_, __) => ShowStatus("Speed is 30–20,000 cpm.", warning: true);
             startDelay.Minimum = 0;
             startDelay.Maximum = 30;
             startDelay.Value = 3;
+            startDelay.PageStep = 5;
+            startDelay.Unit = "s";
             startDelay.FieldName = "Start delay, seconds";
+            startDelay.Clamped += (_, __) => ShowStatus("Start delay is 0–30 s.", warning: true);
             jitter.Minimum = 0;
             jitter.Maximum = 80;
             jitter.Value = 5;
             jitter.AccessibleName = "Humanize pacing, percent";
             jitter.ValueChanged += (_, __) => jitterValue.Text = "±" + jitter.Value + "%";
             jitterValue.Text = "±" + jitter.Value + "%";
-            cpm.ValueChanged += (_, __) => UpdateCharacterCount();
+            cpm.ValueChanged += (_, __) => UpdateCharacterCount(text.Text);
 
             text.Multiline = true;
+            text.MaxLength = int.MaxValue; // WinForms stops typing and cuts pastes at 32,767 characters otherwise
             text.AcceptsReturn = true;
             text.AcceptsTab = true;
             text.ScrollBars = ScrollBars.None;
             editorScroll.Target = text;
+            lineGutter.Target = text;
+            lineGutter.Visible = Theme.Settings.ShowLineNumbers;
             text.WordWrap = true;
             text.Font = UiFont.Editor;
             text.BorderStyle = BorderStyle.None;
@@ -867,9 +920,11 @@ namespace TYPR
             text.MouseDown += (_, __) => SetSidebarOpen(false);
             text.TextChanged += (_, __) =>
             {
-                UpdateCharacterCount();
+                // Copied once per keystroke; ActiveTemplate holds it at once, so the crash handler can save it.
+                string current = text.Text;
+                UpdateCharacterCount(current);
                 if (loadingTemplate) return;
-                ActiveTemplate.Text = text.Text;
+                ActiveTemplate.Text = current;
                 templateSaveTimer.Stop();
                 templateSaveTimer.Start();
             };
@@ -881,19 +936,26 @@ namespace TYPR
             };
 
             pressEnter.AccessibleName = "End with Enter";
+            // Purely visual, so it stays live during a run; it never touches the text or the selection.
+            lineNumbers.AccessibleName = "Line numbers";
+            lineNumbers.SetInitial(Theme.Settings.ShowLineNumbers);
+            lineNumbers.CheckedChanged += (_, __) =>
+            {
+                Theme.Settings.ShowLineNumbers = lineNumbers.Checked;
+                lineGutter.Visible = lineNumbers.Checked;
+                Theme.SaveSettings();
+            };
+            tips.SetToolTip(lineNumbers, "Line numbers (Ctrl+Shift+L)");
 
             start.Text = "Start typing";
-            start.AccessibleName = $"Start typing ({FormatHotkey(Theme.Settings.StartModifiers, Theme.Settings.StartKey)})";
             start.Click += StartButton_Click;
 
             stop.Text = "Stop";
-            stop.AccessibleName = $"Stop typing ({FormatHotkey(Theme.Settings.StopModifiers, Theme.Settings.StopKey)})";
             stop.Enabled = false;
             stop.Click += (_, __) => StopTyping();
 
-            UpdateHotkeyButton(startHotkey, "Start typing", Theme.Settings.StartModifiers, Theme.Settings.StartKey);
+            RefreshHotkeyLabels();
             startHotkey.Click += (_, __) => ChangeHotkey(true);
-            UpdateHotkeyButton(stopHotkey, "Stop", Theme.Settings.StopModifiers, Theme.Settings.StopKey);
             stopHotkey.Click += (_, __) => ChangeHotkey(false);
             ConfigureKeycap(startHotkey);
             ConfigureKeycap(stopHotkey);
@@ -912,27 +974,31 @@ namespace TYPR
             status.AutoSize = false;
             status.AutoEllipsis = true;
             status.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-            status.Height = UiFont.Small.Height + 4;
+            // Two lines (the footer's 40px), so a long message wraps at narrow widths instead of being cut;
+            // a short one stays one line, centred.
+            status.Height = UiFont.Small.Height * 2 + 4;
             status.TextAlign = ContentAlignment.MiddleLeft;
             status.Font = UiFont.Small;
-            status.Margin = Padding.Empty;
+            // 8px of clear space after the status dot.
+            status.Margin = new Padding(UiSpacing.Small - UiSpacing.LabelInset, 0, 0, 0);
             status.LiveSetting = System.Windows.Forms.Automation.AutomationLiveSetting.Polite;
 
             characterCount.Anchor = AnchorStyles.None;
             characterCount.Margin = new Padding(UiSpacing.Medium, 0, 0, 0);
-            // Match the action buttons' visible face (40 px minus the focus-ring room on each side).
-            characterCount.MinimumSize = new Size(0, 40 - FocusRing.Room * 2);
-            loadingTemplate = true;
-            text.Text = ActiveTemplate.Text;
-            loadingTemplate = false;
-            UpdateCharacterCount();
+            // Match the action buttons' visible face (their height minus the focus-ring room on each side).
+            characterCount.MinimumSize = new Size(0, UiSize.Button - FocusRing.Room * 2);
+            ShowTemplateText(ActiveTemplate.Text);
 
             windowContent = BuildWindowContent();
             Controls.Add(windowContent);
             ApplyResponsive();
             // Stop any in-flight typing before the window (and its controls) go away, so
             // SendInput doesn't keep firing into whatever window has focus after TYPR closes.
-            FormClosing += (_, __) => cts?.Cancel();
+            FormClosing += (_, __) =>
+            {
+                cts?.Cancel();
+                RememberWindowSize();
+            };
             Application.AddMessageFilter(this);
             FormClosed += (_, __) => Application.RemoveMessageFilter(this);
             FormClosed += (_, __) =>
@@ -960,22 +1026,38 @@ namespace TYPR
             if (announce && status.IsHandleCreated) status.AccessibilityObject.RaiseLiveRegionChanged();
         }
 
-        private void UpdateCharacterCount()
+        // current is text.Text, passed in so a keystroke copies the editor's text only once.
+        private void UpdateCharacterCount(string current)
         {
-            int count = text.TextLength;
-            string label = $"{count.ToString("N0", CultureInfo.InvariantCulture)} {(count == 1 ? "character" : "characters")}";
-            if (count > 0 && cpm.Value > 0)
-            {
-                double minutes = count / (double)cpm.Value;
-                label += minutes < 1 ? $" \u00b7 \u2248{Math.Max(1, (int)Math.Round(minutes * 60))} s" : $" \u00b7 \u2248{Math.Round(minutes):N0} min";
-            }
-            characterCount.Text = label;
+            UpdateCharacterChip();
             if (cts != null) return;
-            bool blank = string.IsNullOrWhiteSpace(text.Text);
+            bool blank = string.IsNullOrWhiteSpace(current);
             start.Enabled = !blank;
             // U9: say why Start is off instead of a green "Ready".
             if (blank) ShowStatus(EmptyHint, announce: false);
             else if (status.Text == EmptyHint) ShowStatus("Ready", announce: false);
+        }
+
+        // Narrow windows and runs drop the word "characters" so the status keeps the room; the tooltip has it all.
+        private void UpdateCharacterChip()
+        {
+            int count = text.TextLength;
+            characterCount.Text = CharacterCountLabel(count, cpm.Value, compact: cts != null || ClientSize.Width < CompactWidth);
+            tips.SetToolTip(characterCount, CharacterCountLabel(count, cpm.Value, compact: false));
+        }
+
+        // "6,700 characters · ≈6 min"; compact "6,700 · ≈6 min" (the unit stays when no estimate follows).
+        internal static string CharacterCountLabel(int count, decimal cpm, bool compact)
+        {
+            string label = count.ToString("N0", CultureInfo.InvariantCulture);
+            if (count == 0 || cpm <= 0) compact = false;
+            if (!compact) label += count == 1 ? " character" : " characters";
+            if (count > 0 && cpm > 0)
+            {
+                double minutes = count / (double)cpm;
+                label += minutes < 1 ? $" · ≈{Math.Max(1, (int)Math.Round(minutes * 60))} s" : $" · ≈{Math.Round(minutes):N0} min";
+            }
+            return label;
         }
 
         // ---------- Layout (rebuilt from the current theme on every theme switch) ----------
@@ -988,7 +1070,7 @@ namespace TYPR
                 BackColor = Theme.Bg,
                 ColumnCount = 1,
                 RowCount = 2,
-                Margin = WindowState == FormWindowState.Maximized ? Padding.Empty : new Padding(1),
+                Margin = Padding.Empty,
                 Padding = Padding.Empty
             };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, TitleBarHeight));
@@ -1019,12 +1101,13 @@ namespace TYPR
 
             contentGrid = content;
             sidebar = BuildSidebar();
+            sidebar.Leave += (_, __) => CloseSidebarIfFocusLeft();
             content.Controls.Add(sidebar, 0, 0);
             content.Controls.Add(BuildEditorGroup(), 1, 0);
             return content;
         }
 
-        // CNTR's Settings pattern: a --fs-sm bold --text-3 title over one --surface-1 card of rows.
+        // CNTR's Settings pattern: a --fs-xs bold --text-2 title over one --surface-1 card of rows.
         private Control BuildSidebar()
         {
             cpm.ApplyTheme();
@@ -1034,16 +1117,23 @@ namespace TYPR
             jitterValue.ForeColor = Theme.Text;
             jitterValue.Anchor = AnchorStyles.Right;
             jitterValue.Margin = Padding.Empty;
-            resetHotkeysLink.LinkColor = Theme.Text2;
-            resetHotkeysLink.ActiveLinkColor = Theme.Text;
-            resetHotkeysLink.VisitedLinkColor = Theme.Text2;
-            resetHotkeysLink.Margin = new Padding(UiSpacing.Medium, UiSpacing.Small, 0, 0);
+            // Reads as a link: --accent (6.1:1 on dark --bg, 7.9:1 on light), underlined on hover.
+            resetHotkeysLink.LinkColor = Theme.AccentText;
+            resetHotkeysLink.ActiveLinkColor = Theme.AccentText;
+            resetHotkeysLink.VisitedLinkColor = Theme.AccentText;
+            resetHotkeysLink.DisabledLinkColor = Theme.Text3;
+            // Its text starts at the card's inner edge, over the icon tiles.
+            resetHotkeysLink.Margin = new Padding(UiSpacing.Medium - UiSpacing.LabelInset, UiSpacing.Small, 0, 0);
 
             var typing = CardRows(
-                SettingRow(Glyph.Speed, Theme.Accent, "Speed", Fixed(cpm, 68), "Characters per minute"),
+                // Wider than the delay box: room for "20000" and the "cpm" unit inside it.
+                SettingRow(Glyph.Speed, Theme.Accent, "Speed", Fixed(cpm, 96), "Characters per minute"),
                 SettingRow(Glyph.Stopwatch, Theme.Accent, "Start delay", Fixed(startDelay, 68), "Seconds to focus the target window"),
                 SliderRow(Glyph.Pulse, "Humanize pacing", jitter, jitterValue),
-                SwitchRow(Glyph.Enter, "End with Enter", pressEnter));
+                SwitchRow(Glyph.Enter, "End with Enter", pressEnter, "Press Enter after the last character"));
+            // Its own group: Typing is locked during a run, this switch is not.
+            var editor = CardRows(
+                SwitchRow(Glyph.LineNumbers, "Line numbers", lineNumbers, "Show line numbers left of the text. Ctrl+Shift+L"));
             var shortcuts = CardRows(
                 SettingRow(Glyph.Play, Theme.Positive, "Start", startHotkey),
                 SettingRow(Glyph.Stop, Theme.Negative, "Stop", stopHotkey));
@@ -1054,10 +1144,12 @@ namespace TYPR
                 ColumnCount = 1,
                 BackColor = Theme.Bg,
                 Margin = Padding.Empty,
-                Padding = new Padding(UiSpacing.XSmall, UiSpacing.XSmall, UiSpacing.Medium, UiSpacing.Medium)
+                // Top as the editor column's, so the first group title shares the tab labels' baseline.
+                Padding = new Padding(UiSpacing.XSmall, UiSpacing.Small, UiSpacing.Medium, UiSpacing.Medium)
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             AddGroup(layout, "Typing", typing, first: true);
+            AddGroup(layout, "Editor", editor);
             AddGroup(layout, "Shortcuts", shortcuts);
             layout.Controls.Add(resetHotkeysLink);
             layout.Controls.Add(new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg, Margin = Padding.Empty });
@@ -1074,8 +1166,9 @@ namespace TYPR
                 Text = title,
                 AutoSize = true,
                 Font = UiFont.Label,
-                ForeColor = Theme.Text3,
-                Margin = new Padding(UiSpacing.Medium, first ? UiSpacing.Small : UiSpacing.Medium, 0, UiSpacing.XSmall)
+                ForeColor = Theme.Text2,
+                // Text at the card's inner edge, in line with the icon tiles below.
+                Margin = new Padding(UiSpacing.Medium - UiSpacing.LabelInset, first ? UiSpacing.Small : UiSpacing.Medium, 0, UiSpacing.XSmall)
             });
             layout.Controls.Add(card);
         }
@@ -1083,13 +1176,16 @@ namespace TYPR
         private static Control Fixed(Control control, int width)
         {
             control.Width = width;
-            control.Height = 26;
+            control.Height = UiSize.Field;
             control.Anchor = AnchorStyles.Right;
-            control.Margin = Padding.Empty;
+            // A field has no focus-ring room, so it stops Room short, where the keycap and switch faces end.
+            control.Margin = new Padding(0, 0, FocusRing.Room, 0);
             return control;
         }
 
         // One --surface-1 card (--line border, --r-lg) holding rows split by --line dividers.
+        // The right padding leaves out FocusRing.Room: keycaps and the switch keep that room around their
+        // face, so every visible right edge lands --s3 inside the card; the rest stops Room short.
         private static Control CardRows(params Control[] rows)
         {
             var card = new RoundedPanel
@@ -1098,7 +1194,7 @@ namespace TYPR
                 BackColor = Theme.Surface1,
                 BorderColor = Theme.Line,
                 CornerRadius = UiRadius.Large,
-                Padding = new Padding(UiSpacing.Medium, 1, UiSpacing.Medium, 1),
+                Padding = new Padding(UiSpacing.Medium, 1, UiSpacing.Medium - FocusRing.Room, 1),
                 Margin = Padding.Empty
             };
             var stack = new TableLayoutPanel
@@ -1118,7 +1214,7 @@ namespace TYPR
                 if (i > 0)
                 {
                     stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 1));
-                    stack.Controls.Add(new LineDivider(), 0, row++);
+                    stack.Controls.Add(new LineDivider { Margin = new Padding(0, 0, FocusRing.Room, 0) }, 0, row++);
                     height += 1;
                 }
                 // Rows carry their intended height in Tag: a docked row's Height can change once
@@ -1181,14 +1277,15 @@ namespace TYPR
         {
             var row = new TableLayoutPanel
             {
+                // The slider gets 26px: room for the hovered thumb's 2px focus ring (r 9 + 4 each way).
                 Dock = DockStyle.Fill,
-                Height = 62,
-                Tag = 62,
+                Height = 64,
+                Tag = 64,
                 ColumnCount = 3,
                 RowCount = 2,
                 BackColor = Theme.Surface1,
                 Margin = Padding.Empty,
-                Padding = new Padding(0, 0, 0, 2)
+                Padding = Padding.Empty
             };
             row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -1198,21 +1295,22 @@ namespace TYPR
             row.Controls.Add(new RowIcon { Glyph = glyph, Tint = Theme.Accent }, 0, 0);
             row.Controls.Add(RowLabel(title), 1, 0);
             row.Controls.Add(value, 2, 0);
-            // The thumb's 12px inset puts the rail's start under the icon's centre.
+            // Slider.Pad (12px) puts the rail's start under the icon's centre; the margin keeps its end as far in.
             slider.Dock = DockStyle.Fill;
-            slider.Margin = Padding.Empty;
+            slider.Margin = new Padding(0, 0, FocusRing.Room, 0);
             row.Controls.Add(slider, 0, 1);
             row.SetColumnSpan(slider, 3);
             return row;
         }
 
         // CNTR: "the whole row is the label", so a click anywhere on the row flips the switch.
-        private static Control SwitchRow(string glyph, string title, ToggleCheckBox toggle)
+        private static Control SwitchRow(string glyph, string title, ToggleCheckBox toggle, string description)
         {
-            toggle.Size = new Size(44, 26);
+            // The 44x26 track plus 3px each way, so its 2px focus ring isn't clipped.
+            toggle.Size = new Size(50, 32);
             toggle.Anchor = AnchorStyles.Right;
             toggle.Margin = Padding.Empty;
-            var row = SettingRow(glyph, Theme.Accent, title, toggle, "Press Enter after the last character");
+            var row = SettingRow(glyph, Theme.Accent, title, toggle, description);
             void Flip(object? sender, EventArgs e)
             {
                 if (toggle.Enabled && !ReferenceEquals(sender, toggle)) toggle.Toggle();
@@ -1233,36 +1331,47 @@ namespace TYPR
                 RowCount = 3,
                 BackColor = Theme.Bg,
                 Margin = Padding.Empty,
-                Padding = new Padding(UiSpacing.XSmall, UiSpacing.Small, UiSpacing.Large, UiSpacing.Small)
+                // The footer buttons keep FocusRing.Room around their face, so the right and bottom edges
+                // give it back: faces end --s4 from the window's right edge (with the cards) and --s3 from
+                // its bottom; the tab strip and editor card take the Room back as a right margin.
+                Padding = new Padding(UiSpacing.XSmall, UiSpacing.Small, UiSpacing.Large - FocusRing.Room, UiSpacing.Medium - FocusRing.Room)
             };
             group.RowStyles.Add(new RowStyle(SizeType.Absolute, TabHeight));
             group.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            group.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            group.RowStyles.Add(new RowStyle(SizeType.Absolute, UiSpacing.Medium - FocusRing.Room + UiSize.Button));
             group.Controls.Add(BuildTabStrip(), 0, 0);
             group.Controls.Add(BuildEditorCard(), 0, 1);
             group.Controls.Add(BuildEditorActions(), 0, 2);
             return group;
         }
 
+        // One card for the window's life, recoloured on a theme switch: the edit control sends its change
+        // notices to the window it was created in, so moving it to a new card silenced TextChanged (and with
+        // it the tab's autosave, the character count and the line numbers).
         private Control BuildEditorCard()
         {
-            var card = new RoundedPanel
+            if (editorCard == null)
             {
-                Dock = DockStyle.Fill,
-                BackColor = Theme.Surface1,
-                BorderColor = Theme.Line,
-                CornerRadius = UiRadius.Large,
-                SquareTop = true,
-                Padding = new Padding(UiSpacing.Medium, UiSpacing.Small, UiSpacing.XSmall, UiSpacing.Small),
-                Margin = Padding.Empty
-            };
+                editorCard = new RoundedPanel
+                {
+                    Dock = DockStyle.Fill,
+                    CornerRadius = UiRadius.Large,
+                    SquareTop = true,
+                    Padding = new Padding(UiSpacing.Medium, UiSpacing.Small, UiSpacing.XSmall, UiSpacing.Small),
+                    Margin = new Padding(0, 0, FocusRing.Room, 0)
+                };
+                editorCard.Controls.Add(text);
+                // Added after the Fill editor, so they dock first and take the right and left edges.
+                editorScroll.Dock = DockStyle.Right;
+                editorCard.Controls.Add(editorScroll);
+                lineGutter.Dock = DockStyle.Left;
+                editorCard.Controls.Add(lineGutter);
+            }
+            editorCard.BackColor = Theme.Surface1;
+            editorCard.BorderColor = Theme.Line;
             text.BackColor = Theme.Surface1;
             text.ForeColor = Theme.Text;
-            card.Controls.Add(text);
-            // Added after the Fill editor, so it docks first and takes the right edge.
-            editorScroll.Dock = DockStyle.Right;
-            card.Controls.Add(editorScroll);
-            return card;
+            return editorCard;
         }
 
         private Control BuildEditorActions()
@@ -1274,10 +1383,11 @@ namespace TYPR
                 RowCount = 1,
                 BackColor = Theme.Bg,
                 Margin = Padding.Empty,
-                Padding = new Padding(UiSpacing.XSmall, UiSpacing.Small, 0, 0)
+                // The dot starts at the editor card's inner edge, with the tab icons; the faces start --s3 below the card.
+                Padding = new Padding(UiSpacing.Medium, UiSpacing.Medium - FocusRing.Room, 0, 0)
             };
             actions.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 20));
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, StatusDot.Diameter));
             actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             for (int i = 0; i < 3; i++)
                 actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -1287,7 +1397,9 @@ namespace TYPR
             status.ForeColor = statusWarning ? Theme.Negative : Theme.Text2;
             ConfigureActionButton(stop, 80);
             ConfigureActionButton(start, 120);
-            start.Margin = new Padding(UiSpacing.Small, 0, 0, 0);
+            // --s2 between the visible faces: the chip has no focus-ring room, the buttons Room each.
+            stop.Margin = new Padding(UiSpacing.Small - FocusRing.Room, 0, 0, 0);
+            start.Margin = new Padding(UiSpacing.Small - FocusRing.Room * 2, 0, 0, 0);
 
             actions.Controls.Add(statusDot, 0, 0);
             actions.Controls.Add(status, 1, 0);
@@ -1299,39 +1411,51 @@ namespace TYPR
 
         private static void ConfigureActionButton(RoundedButton button, int minWidth)
         {
-            button.MinimumSize = new Size(minWidth, 40);
+            button.MinimumSize = new Size(minWidth, UiSize.Button);
             button.Padding = new Padding(UiSpacing.Large, 0, UiSpacing.Large, 0);
             button.FitText = true;
             button.Anchor = AnchorStyles.None;
-            button.Margin = new Padding(UiSpacing.Small, 0, 0, 0);
         }
 
+        // The tabs scroll sideways inside their own strip (no native scroll bar over them); the + sits
+        // right after them, outside the strip, so it stays in view when they overflow.
         private Control BuildTabStrip()
         {
-            templateTabs = new TabStripPanel
+            var row = new TabStripPanel
             {
                 Dock = DockStyle.Fill,
+                WrapContents = false,
+                FlowDirection = FlowDirection.LeftToRight,
+                BackColor = Theme.Bg,
+                // Ends with the editor card (see BuildEditorGroup).
+                Margin = new Padding(0, 0, FocusRing.Room, 0),
+                Padding = Padding.Empty
+            };
+            templateTabs = new TabStripPanel
+            {
+                Height = TabHeight,
                 WrapContents = false,
                 FlowDirection = FlowDirection.LeftToRight,
                 BackColor = Theme.Bg,
                 Margin = Padding.Empty,
                 Padding = Padding.Empty
             };
-            templateTabs.Resize += (_, __) => FitTemplateTabs();
+            row.Controls.Add(templateTabs);
+            row.Resize += (_, __) => FitTemplateTabs();
             addTemplateButton.AccessibleName = "Add text";
             addTemplateButton.AccessibleRole = AccessibleRole.PushButton;
             addTemplateButton.Size = new Size(TabHeight, TabHeight);
             addTemplateButton.Margin = Padding.Empty;
             addTemplateButton.Cursor = Cursors.Hand;
+            row.Controls.Add(addTemplateButton);
             RefreshTemplateTabs();
-            return templateTabs;
+            return row;
         }
 
         private void RefreshTemplateTabs()
         {
             if (templateTabs == null) return;
             templateTabs.SuspendLayout();
-            templateTabs.Controls.Remove(addTemplateButton);
             while (templateTabs.Controls.Count > 0)
             {
                 Control control = templateTabs.Controls[0];
@@ -1348,16 +1472,37 @@ namespace TYPR
                     Text = Theme.Settings.TextTemplates[i].Name,
                     Height = TabHeight,
                     IsActive = i == Theme.Settings.ActiveTextTemplate,
+                    // The last tab can't be deleted, so it shows no x.
+                    CanClose = Theme.Settings.TextTemplates.Count > 1,
+                    // Roving focus: Tab lands on the active tab only; the arrow keys move along the strip.
+                    TabStop = i == Theme.Settings.ActiveTextTemplate,
                     Font = UiFont.Small,
                     Margin = Padding.Empty,
                     Cursor = Cursors.Hand,
                     AccessibleRole = AccessibleRole.PageTab,
                     AccessibleName = Theme.Settings.TextTemplates[i].Name,
-                    AccessibleDescription = "Enter selects. F2 or double-click renames. Delete closes. Drag to reorder.",
+                    AccessibleDescription = "Left and Right arrows switch tabs. F2 or double-click renames. Delete closes. Drag to reorder.",
                     Tag = i
                 };
                 tips.SetToolTip(tab, Theme.Settings.TextTemplates[i].Name);
                 tab.Click += (_, __) => { if (!dragMoved) SelectTextTemplate(templateIndex); };
+                tab.GotFocus += (_, __) => templateTabs.ScrollIntoView(tab);
+                tab.KeyDown += (_, e) =>
+                {
+                    int count = Theme.Settings.TextTemplates.Count;
+                    int target = e.Modifiers != Keys.None ? -1 : e.KeyCode switch
+                    {
+                        Keys.Left => (templateIndex - 1 + count) % count,
+                        Keys.Right => (templateIndex + 1) % count,
+                        Keys.Home => 0,
+                        Keys.End => count - 1,
+                        _ => -1
+                    };
+                    if (target < 0) return;
+                    e.Handled = true;
+                    // Deferred: selecting rebuilds the tabs, this one included.
+                    BeginInvoke(new Action(() => SelectTextTemplate(target, focusEditor: false)));
+                };
                 tab.MouseDown += (_, e) =>
                 {
                     SetSidebarOpen(false);
@@ -1373,7 +1518,6 @@ namespace TYPR
                 templateTabs.Controls.Add(tab);
                 tab.Enabled = cts == null;
             }
-            templateTabs.Controls.Add(addTemplateButton);
             addTemplateButton.Enabled = cts == null;
             FitTemplateTabs();
             templateTabs.ResumeLayout(true);
@@ -1404,9 +1548,8 @@ namespace TYPR
                     contentGrid.Controls.Remove(sidebar);
                     sidebarSheet.Drawer.Controls.Add(sidebar);
                 }
-                int edge = WindowState == FormWindowState.Maximized ? 0 : 1;
-                int top = edge + TitleBarHeight;
-                sidebarSheet.Bounds = new Rectangle(edge, top, Math.Max(0, ClientSize.Width - edge * 2), Math.Max(0, ClientSize.Height - top - edge));
+                // The window content fills the client area, so the sheet starts right under the title bar.
+                sidebarSheet.Bounds = new Rectangle(0, TitleBarHeight, ClientSize.Width, Math.Max(0, ClientSize.Height - TitleBarHeight));
                 if (windowContent != null) sidebarSheet.CaptureBackdrop(windowContent, TitleBarHeight);
                 sidebarSheet.BringToFront();
             }
@@ -1424,6 +1567,7 @@ namespace TYPR
             // Hidden, not only zero-width, so Tab can't land in it.
             sidebar.Visible = !compact || overlay;
             contentGrid.ColumnStyles[0].Width = compact ? 0 : SidebarWidth;
+            UpdateCharacterChip();
         }
 
         private void SetSidebarOpen(bool open)
@@ -1433,7 +1577,21 @@ namespace TYPR
             sidebarOpen = open;
             ApplyResponsive();
             if (open) sidebar?.SelectNextControl(null, true, true, true, false);
-            else if (focusInside) text.Focus();
+            else if (focusInside) sidebarToggle.Focus();
+        }
+
+        // The drawer covers the editor, so focus leaving it (Tab past its end, Shift+Tab out of the title
+        // bar) closes it: nothing under the sheet may hold focus. Focus on the toggle keeps it open, so the
+        // toggle's own click can close it.
+        private void CloseSidebarIfFocusLeft()
+        {
+            if (!sidebarOpen || !IsHandleCreated) return;
+            // Deferred: Leave runs before the next control takes focus.
+            BeginInvoke(new Action(() =>
+            {
+                if (sidebarOpen && ActiveControl != sidebarToggle && sidebar?.Contains(ActiveControl) != true)
+                    SetSidebarOpen(false);
+            }));
         }
 
         // Drag a tab along the strip: it swaps places live; the new order is saved on release.
@@ -1447,7 +1605,7 @@ namespace TYPR
                 dragMoved = true;
                 tab.Cursor = Cursors.SizeWE;
             }
-            int count = templateTabs.Controls.Count - 1; // the + button is last
+            int count = templateTabs.Controls.Count;
             Point inStrip = templateTabs.PointToClient(tab.PointToScreen(e.Location));
             int target = Math.Clamp((inStrip.X - templateTabs.Controls[0].Left) / Math.Max(1, tab.Width), 0, count - 1);
             if (templateTabs.Controls.GetChildIndex(tab) != target)
@@ -1493,6 +1651,8 @@ namespace TYPR
             else if (mods == Keys.Control && key >= Keys.NumPad1 && key <= Keys.NumPad8) target = key - Keys.NumPad1;
             if (target >= 0)
             {
+                // The drawer covers the tabs and the editor that this moves focus to.
+                SetSidebarOpen(false);
                 if (target < count) SelectTextTemplate(target);
                 return true;
             }
@@ -1506,6 +1666,11 @@ namespace TYPR
                 SetSidebarOpen(!sidebarOpen);
                 return true;
             }
+            if (keyData == (Keys.Control | Keys.Shift | Keys.L))
+            {
+                lineNumbers.Toggle();
+                return true;
+            }
             if (keyData == Keys.Escape && text.Focused)
             {
                 SelectNextControl(text, true, true, true, true);
@@ -1514,18 +1679,19 @@ namespace TYPR
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
-        // Tabs share the strip's width (TabMinWidth..TabMaxWidth) so many tabs stay on one row; only
-        // past the minimum does the strip scroll.
+        // Tabs share the row's width (TabMinWidth..TabMaxWidth) so many tabs stay on one row; only
+        // past the minimum does the strip scroll, and the active tab is kept in view.
         private void FitTemplateTabs()
         {
-            int count = templateTabs.Controls.Count - 1;
-            if (count <= 0) return;
-            int available = templateTabs.ClientSize.Width - addTemplateButton.Width;
+            int count = templateTabs.Controls.Count;
+            if (count == 0 || templateTabs.Parent == null) return;
+            int available = Math.Max(0, templateTabs.Parent.ClientSize.Width - addTemplateButton.Width);
             int width = Math.Clamp(available / count, TabMinWidth, TabMaxWidth);
             foreach (Control control in templateTabs.Controls)
-                if (control is EditorTabPanel tab && tab.Width != width)
-                    tab.Width = width;
-            templateTabs.AutoScroll = count * width > available;
+                if (control.Width != width)
+                    control.Width = width;
+            templateTabs.Width = Math.Min(count * width, available);
+            templateTabs.ScrollIntoView(Theme.Settings.ActiveTextTemplate);
         }
 
         private TextTemplate ActiveTemplate =>
@@ -1539,7 +1705,8 @@ namespace TYPR
             ActiveTemplate.Text = text.Text;
         }
 
-        private void SelectTextTemplate(int index)
+        // focusEditor false keeps focus on the strip (arrow keys), on the new active tab.
+        private void SelectTextTemplate(int index, bool focusEditor = true)
         {
             if (cts != null)
             {
@@ -1553,13 +1720,11 @@ namespace TYPR
             templateSaveTimer.Stop();
             SaveActiveTemplate();
             Theme.Settings.ActiveTextTemplate = index;
-            loadingTemplate = true;
-            text.Text = ActiveTemplate.Text;
-            loadingTemplate = false;
-            UpdateCharacterCount();
+            ShowTemplateText(ActiveTemplate.Text);
             RefreshTemplateTabs();
             Theme.SaveSettings();
-            text.Focus();
+            if (focusEditor) text.Focus();
+            else templateTabs.Controls.OfType<EditorTabPanel>().FirstOrDefault(t => t.IsActive)?.Focus();
         }
 
         private void DeleteTextTemplate(int index)
@@ -1579,22 +1744,11 @@ namespace TYPR
             templateSaveTimer.Stop();
             SaveActiveTemplate();
 
-            if (!string.IsNullOrWhiteSpace(Theme.Settings.TextTemplates[index].Text))
-            {
-                modalDialogOpen = true;
-                DialogResult confirm;
-                try
-                {
-                    confirm = ThemedDialog.Confirm(this, "Delete text?",
-                        $"\u201c{Theme.Settings.TextTemplates[index].Name}\u201d has saved text. Deleting it can't be undone.",
-                        "Delete") ? DialogResult.Yes : DialogResult.No;
-                }
-                finally
-                {
-                    modalDialogOpen = false;
-                }
-                if (confirm != DialogResult.Yes) return;
-            }
+            if (!string.IsNullOrWhiteSpace(Theme.Settings.TextTemplates[index].Text) &&
+                !ThemedDialog.Confirm(this, "Delete text?",
+                    $"\u201c{Theme.Settings.TextTemplates[index].Name}\u201d has saved text. Deleting it can't be undone.",
+                    "Delete"))
+                return;
 
             int activeIndex = Theme.Settings.ActiveTextTemplate;
             Theme.Settings.TextTemplates.RemoveAt(index);
@@ -1604,13 +1758,7 @@ namespace TYPR
             else if (index == activeIndex)
                 Theme.Settings.ActiveTextTemplate = Math.Min(index, Theme.Settings.TextTemplates.Count - 1);
 
-            if (index == activeIndex)
-            {
-                loadingTemplate = true;
-                text.Text = ActiveTemplate.Text;
-                loadingTemplate = false;
-                UpdateCharacterCount();
-            }
+            if (index == activeIndex) ShowTemplateText(ActiveTemplate.Text);
 
             RefreshTemplateTabs();
             Theme.SaveSettings();
@@ -1622,7 +1770,8 @@ namespace TYPR
             if (cts != null || index < 0 || index >= Theme.Settings.TextTemplates.Count)
                 return;
 
-            var nameField = new TextField { Width = 320, Margin = Padding.Empty };
+            // Its box starts where the dialog's text does.
+            var nameField = new TextField { Width = 320, Margin = new Padding(UiSpacing.LabelInset, 0, 0, 0) };
             var nameInput = nameField.Input;
             nameInput.Text = Theme.Settings.TextTemplates[index].Name;
             nameInput.MaxLength = 80;
@@ -1631,10 +1780,11 @@ namespace TYPR
             var nameError = new Label
             {
                 AutoSize = true,
-                Font = UiFont.Meta,
+                Font = UiFont.Small,
                 ForeColor = Theme.Negative,
                 Margin = new Padding(0, UiSpacing.XSmall, 0, 0),
-                Visible = false
+                Visible = false,
+                LiveSetting = System.Windows.Forms.Automation.AutomationLiveSetting.Polite
             };
             var body = new FlowLayoutPanel
             {
@@ -1660,23 +1810,14 @@ namespace TYPR
                 {
                     nameError.Text = "Give the text a name.";
                     nameError.Visible = true;
+                    if (nameError.IsHandleCreated) nameError.AccessibilityObject.RaiseLiveRegionChanged();
                     nameInput.Focus();
                     return;
                 }
                 dialog.DialogResult = DialogResult.OK;
             };
 
-            modalDialogOpen = true;
-            DialogResult renameResult;
-            try
-            {
-                renameResult = dialog.ShowDialog(this);
-            }
-            finally
-            {
-                modalDialogOpen = false;
-            }
-            if (renameResult != DialogResult.OK)
+            if (dialog.ShowDialog(this) != DialogResult.OK)
                 return;
 
             string name = nameInput.Text.Trim();
@@ -1697,17 +1838,33 @@ namespace TYPR
             SaveActiveTemplate();
             var template = new TextTemplate
             {
-                Name = $"Text {Theme.Settings.TextTemplates.Count + 1}"
+                Name = NextTextName(Theme.Settings.TextTemplates)
             };
             Theme.Settings.TextTemplates.Add(template);
             Theme.Settings.ActiveTextTemplate = Theme.Settings.TextTemplates.Count - 1;
-            loadingTemplate = true;
-            text.Clear();
-            loadingTemplate = false;
-            UpdateCharacterCount();
+            ShowTemplateText(string.Empty);
             RefreshTemplateTabs();
             Theme.SaveSettings();
             text.Focus();
+        }
+
+        // "Text N" from Count + 1 up, skipping names in use, so deleting a tab can't lead to two with one name.
+        internal static string NextTextName(List<TextTemplate> templates)
+        {
+            for (int n = templates.Count + 1; ; n++)
+            {
+                string name = $"Text {n}";
+                if (!templates.Exists(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))) return name;
+            }
+        }
+
+        // Puts a tab's text in the editor without counting it as an edit.
+        private void ShowTemplateText(string value)
+        {
+            loadingTemplate = true;
+            text.Text = value;
+            loadingTemplate = false;
+            UpdateCharacterCount(text.Text);
         }
 
         private void SetTemplateTabsEnabled(bool enabled)
@@ -1782,12 +1939,34 @@ namespace TYPR
             ToggleWindowState();
         }
 
+        // The size TYPR was closed at comes back next launch; a size that no longer fits the screen is shrunk.
+        private void RestoreWindowSize()
+        {
+            var saved = Theme.Settings;
+            if (saved.WindowWidth > 0)
+            {
+                // CenterScreen opens on the monitor under the cursor, so fit that one.
+                var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+                ClientSize = new Size(Math.Min(saved.WindowWidth, area.Width), Math.Min(saved.WindowHeight, area.Height));
+            }
+            // Maximizing before the handle exists makes RestoreBounds the frame-padded size, which grew 14px a launch.
+            if (saved.WindowMaximized) Load += (_, __) => WindowState = FormWindowState.Maximized;
+        }
+
+        // FormClosed saves the settings right after this.
+        private void RememberWindowSize()
+        {
+            var normal = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            Theme.Settings.WindowWidth = normal.Width;
+            Theme.Settings.WindowHeight = normal.Height;
+            Theme.Settings.WindowMaximized = lastMaximized;
+        }
+
         private void ToggleWindowState()
         {
             WindowState = WindowState == FormWindowState.Maximized
                 ? FormWindowState.Normal
                 : FormWindowState.Maximized;
-            maximizeButton.IsMaximized = WindowState == FormWindowState.Maximized;
         }
 
         protected override void WndProc(ref Message m)
@@ -1830,8 +2009,10 @@ namespace TYPR
             if (m.Msg == NativeMethods.WM_HOTKEY)
             {
                 int id = m.WParam.ToInt32();
+                // Hotkeys reach this window even while a TYPR dialog is up: Stop always works, Start waits.
+                // StartButton_Click is async void, so a failure reaches ThreadException instead of a dropped Task.
                 if (id == HOTKEY_STOP) StopTyping();
-                else if (id == HOTKEY_START && !modalDialogOpen) _ = StartTypingAsync();
+                else if (id == HOTKEY_START && !ThemedDialog.AnyOpen) StartButton_Click(this, EventArgs.Empty);
             }
 
             if (m.Msg == WM_NCHITTEST && WindowState == FormWindowState.Normal)
@@ -1932,10 +2113,10 @@ namespace TYPR
 
         private static void ConfigureKeycap(RoundedButton button)
         {
-            button.MinimumSize = new Size(40, 28);
+            button.MinimumSize = new Size(40, UiSize.Keycap);
             // Capped so a long combo (Ctrl+Alt+Shift+Win+F12) can't push the row label out; the
             // tooltip shows it whole.
-            button.MaximumSize = new Size(110, 28);
+            button.MaximumSize = new Size(110, UiSize.Keycap);
             button.Padding = new Padding(UiSpacing.Small, 0, UiSpacing.Small, 0);
             button.FitText = true;
             button.Margin = Padding.Empty;
@@ -1944,8 +2125,17 @@ namespace TYPR
         private void UpdateHotkeyButton(RoundedButton button, string name, int modifiers, int key)
         {
             button.Text = FormatHotkey(modifiers, key);
-            button.AccessibleName = $"{name} hotkey: {button.Text}. Click to change.";
+            button.AccessibleName = $"{name} shortcut: {button.Text}. Click to change.";
             tips.SetToolTip(button, $"{button.Text} — click to change");
+        }
+
+        // The keycaps and the Start/Stop buttons' names follow the saved shortcuts.
+        private void RefreshHotkeyLabels()
+        {
+            UpdateHotkeyButton(startHotkey, "Start typing", Theme.Settings.StartModifiers, Theme.Settings.StartKey);
+            UpdateHotkeyButton(stopHotkey, "Stop", Theme.Settings.StopModifiers, Theme.Settings.StopKey);
+            start.AccessibleName = $"Start typing ({startHotkey.Text})";
+            stop.AccessibleName = $"Stop typing ({stopHotkey.Text})";
         }
 
         private static System.Collections.Generic.List<string> ModifierNames(int modifiers)
@@ -2009,6 +2199,7 @@ namespace TYPR
             // Focusing the editor at startup selects all of it; start with the caret at the top instead.
             text.Select(0, 0);
             TryRegisterHotKeys();
+            Theme.ShowStartupWarning(this);
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -2027,7 +2218,7 @@ namespace TYPR
         private bool TryRegisterHotKeys()
         {
             if (hotkeysRegistered) return true;
-            if (IsDisposed || Handle == IntPtr.Zero) return false;
+            if (IsDisposed || !IsHandleCreated) return false;
 
             bool startOk = NativeMethods.RegisterHotKey(
                 Handle,
@@ -2053,7 +2244,7 @@ namespace TYPR
 
         private void TryUnregisterHotKeys()
         {
-            if (!hotkeysRegistered || IsDisposed || Handle == IntPtr.Zero) return;
+            if (!hotkeysRegistered || IsDisposed || !IsHandleCreated) return;
 
             NativeMethods.UnregisterHotKey(Handle, HOTKEY_START);
             NativeMethods.UnregisterHotKey(Handle, HOTKEY_STOP);
@@ -2070,7 +2261,8 @@ namespace TYPR
         {
             if (cts != null) return;
             TryUnregisterHotKeys();
-            const string Hint = "Press the new shortcut: any key with Ctrl, Alt, Shift or Win, or F1\u2013F24 alone. Esc cancels.";
+            // Names exactly the keys HotkeyModifiers.CanStandAlone lets stand alone.
+            const string Hint = "Press the new shortcut: any key with Ctrl, Alt, Shift or Win, or F1\u2013F24, Pause or Scroll Lock alone. Esc cancels.";
             var preview = new Label
             {
                 Text = "\u2026",
@@ -2088,7 +2280,9 @@ namespace TYPR
                 MinimumSize = new Size(320, 0),
                 Font = UiFont.Small,
                 ForeColor = Theme.Text2,
-                BackColor = Theme.Surface1
+                BackColor = Theme.Surface1,
+                Margin = Padding.Empty,
+                LiveSetting = System.Windows.Forms.Automation.AutomationLiveSetting.Polite
             };
             var body = new FlowLayoutPanel
             {
@@ -2115,6 +2309,7 @@ namespace TYPR
             {
                 instruction.Text = why;
                 instruction.ForeColor = Theme.Negative;
+                if (instruction.IsHandleCreated) instruction.AccessibilityObject.RaiseLiveRegionChanged();
             }
 
             int newModifiers = 0;
@@ -2171,32 +2366,26 @@ namespace TYPR
                 return;
             }
 
-            int oldKey = isStart ? Theme.Settings.StartKey : Theme.Settings.StopKey;
-            int oldModifiers = isStart ? Theme.Settings.StartModifiers : Theme.Settings.StopModifiers;
-            if (isStart)
-            {
-                Theme.Settings.StartKey = newKey;
-                Theme.Settings.StartModifiers = newModifiers;
-            }
-            else
-            {
-                Theme.Settings.StopKey = newKey;
-                Theme.Settings.StopModifiers = newModifiers;
-            }
-
-            if (!TryRegisterHotKeys())
+            void SetShortcut(int key, int modifiers)
             {
                 if (isStart)
                 {
-                    Theme.Settings.StartKey = oldKey;
-                    Theme.Settings.StartModifiers = oldModifiers;
+                    Theme.Settings.StartKey = key;
+                    Theme.Settings.StartModifiers = modifiers;
                 }
                 else
                 {
-                    Theme.Settings.StopKey = oldKey;
-                    Theme.Settings.StopModifiers = oldModifiers;
+                    Theme.Settings.StopKey = key;
+                    Theme.Settings.StopModifiers = modifiers;
                 }
+            }
+            int oldKey = isStart ? Theme.Settings.StartKey : Theme.Settings.StopKey;
+            int oldModifiers = isStart ? Theme.Settings.StartModifiers : Theme.Settings.StopModifiers;
+            SetShortcut(newKey, newModifiers);
 
+            if (!TryRegisterHotKeys())
+            {
+                SetShortcut(oldKey, oldModifiers);
                 TryRegisterHotKeys();
                 ThemedDialog.Inform(this, "Shortcut unavailable",
                     $"Windows could not register {FormatHotkey(newModifiers, newKey)}. Another app may already use it" +
@@ -2204,10 +2393,7 @@ namespace TYPR
                 return;
             }
 
-            UpdateHotkeyButton(startHotkey, "Start typing", Theme.Settings.StartModifiers, Theme.Settings.StartKey);
-            UpdateHotkeyButton(stopHotkey, "Stop", Theme.Settings.StopModifiers, Theme.Settings.StopKey);
-            start.AccessibleName = $"Start typing ({startHotkey.Text})";
-            stop.AccessibleName = $"Stop typing ({stopHotkey.Text})";
+            RefreshHotkeyLabels();
             Theme.SaveSettings();
             ShowStatus($"Shortcuts updated — {startHotkey.Text} starts, {stopHotkey.Text} stops.");
         }
@@ -2228,10 +2414,7 @@ namespace TYPR
             Theme.Settings.StopModifiers = 0;
             TryRegisterHotKeys();
 
-            UpdateHotkeyButton(startHotkey, "Start typing", Theme.Settings.StartModifiers, Theme.Settings.StartKey);
-            UpdateHotkeyButton(stopHotkey, "Stop", Theme.Settings.StopModifiers, Theme.Settings.StopKey);
-            start.AccessibleName = $"Start typing ({startHotkey.Text})";
-            stop.AccessibleName = $"Stop typing ({stopHotkey.Text})";
+            RefreshHotkeyLabels();
             Theme.SaveSettings();
             if (hotkeysRegistered) ShowStatus("Shortcuts reset — F8 starts, F9 stops.");
         }
@@ -2269,7 +2452,7 @@ namespace TYPR
         {
             Control[] kept =
             {
-                text, editorScroll, cpm, startDelay, jitter, jitterValue, pressEnter, start, stop, startHotkey, stopHotkey,
+                editorCard!, cpm, startDelay, jitter, jitterValue, pressEnter, lineNumbers, start, stop, startHotkey, stopHotkey,
                 statusDot, status, characterCount, maximizeButton,
                 themeToggleButton, sidebarToggle, addTemplateButton, resetHotkeysLink
             };
@@ -2306,7 +2489,7 @@ namespace TYPR
             themeToggleButton.Invalidate();
         }
 
-        // ---------- Typing engine (unchanged) ----------
+        // ---------- Typing engine ----------
 
         private async Task StartTypingAsync()
         {
@@ -2317,13 +2500,23 @@ namespace TYPR
             SaveActiveTemplate();
             Theme.SaveSettings();
             string payload = ActiveTemplate.Text;
-            if (string.IsNullOrWhiteSpace(payload)) { ShowStatus("Tab is empty \u2014 add text first.", warning: true); return; }
-            int controls = payload.Count(c => char.IsControl(c) && c != '\r' && c != '\n' && c != '\t');
+            if (string.IsNullOrWhiteSpace(payload)) { ShowStatus(EmptyHint, warning: true); return; }
+            string cleaned = WithoutControlChars(payload);
+            int controls = payload.Length - cleaned.Length;
             if (controls > 0)
             {
                 // Backspace, form feed and the like would delete or change text in the target.
-                ShowStatus($"This text has {controls:N0} hidden control character{(controls == 1 ? "" : "s")} (like backspace). Remove them first.", warning: true);
-                return;
+                if (!ThemedDialog.Confirm(this, $"Remove {controls:N0} control character{(controls == 1 ? "" : "s")}?",
+                        "This text has hidden characters (like backspace) that would delete or change text in the target window. " +
+                        "TYPR removes them from this tab, keeps line breaks and tabs, then starts typing.",
+                        "Remove and start"))
+                    return;
+                payload = cleaned;
+                text.Text = cleaned;
+                templateSaveTimer.Stop();
+                SaveActiveTemplate();
+                Theme.SaveSettings();
+                if (string.IsNullOrWhiteSpace(payload)) { ShowStatus(EmptyHint, warning: true); return; }
             }
 
             cts = new CancellationTokenSource();
@@ -2333,7 +2526,8 @@ namespace TYPR
                 int delay = (int)startDelay.Value;
                 for (int i = delay; i > 0; i--)
                 {
-                    ShowStatus($"Switch to the target window \u2014 {i}");
+                    // The changing part first, so a narrow footer still shows it.
+                    ShowStatus($"{i} \u00b7 switch to the target window");
                     await Task.Delay(1000, cts.Token);
                 }
                 // A start shortcut such as Ctrl+F8 may still be held; typed Enter/Tab would combine with it.
@@ -2341,6 +2535,11 @@ namespace TYPR
                 {
                     ShowStatus("Release Ctrl, Alt, Shift and Win to start.");
                     await Task.Delay(20, cts.Token);
+                }
+                if (NativeMethods.AnyModifierDown())
+                {
+                    ShowStatus("Ctrl, Alt, Shift or Win is still held — release it and start again.", warning: true);
+                    return;
                 }
 
                 // The window in front now is the target. If focus moves (a toast, alt-tab, a click
@@ -2381,7 +2580,7 @@ namespace TYPR
                     {
                         // Throttled so label updates never slow the typing itself.
                         nextProgress = Environment.TickCount64 + 100;
-                        ShowStatus($"Typing {i + 1:N0} / {payload.Length:N0} \u00b7 {stopKey} stops", announce: false);
+                        ShowStatus($"{i + 1:N0} / {payload.Length:N0} \u00b7 {stopKey} stops", announce: false);
                     }
 
                     if (ch == '\r' && i + 1 < payload.Length && payload[i + 1] == '\n') continue;
@@ -2439,6 +2638,10 @@ namespace TYPR
             }
         }
 
+        // The text minus control characters, keeping line breaks and tabs (typed as Enter and Tab).
+        internal static string WithoutControlChars(string value) =>
+            string.Concat(value.Where(c => !char.IsControl(c) || c is '\r' or '\n' or '\t'));
+
         // While typing, only Stop stays live: settings are read once at the start, and changing a
         // shortcut mid-run would unregister F9 (Stop must always work).
         private void SetRunning(bool running)
@@ -2452,6 +2655,7 @@ namespace TYPR
             foreach (Control control in new Control[] { cpm, startDelay, jitter, pressEnter, startHotkey, stopHotkey, resetHotkeysLink, themeToggleButton })
                 control.Enabled = !running;
             text.ReadOnly = running;
+            UpdateCharacterChip();
             start.Enabled = !running && !string.IsNullOrWhiteSpace(text.Text);
             // Disabling the focused button would push focus somewhere random; keep it on the live one.
             if (focusOnAction) (running ? stop : start.Enabled ? start : (Control)text).Focus();
@@ -2485,14 +2689,95 @@ namespace TYPR
             using var pen = new Pen(Theme.Text, 2f);
             g.DrawPath(pen, path);
         }
+
+        // A ring drawn Room px outside a shape rounds its corners by the same amount.
+        public static int Radius(int shapeRadius) => shapeRadius + Room;
     }
 
+    // Screen-reader face of an owner-drawn control: Invoke (DoDefaultAction) presses it like its native
+    // counterpart, and its checked/selected state and value are read out.
+    internal sealed class OwnerDrawnAccessibleObject : Control.ControlAccessibleObject
+    {
+        private readonly string? action;
+        private readonly Action? press;
+        private readonly Func<AccessibleStates>? state;
+        private readonly Func<string>? read;
+
+        public OwnerDrawnAccessibleObject(Control owner, string? action, Action? press,
+            Func<AccessibleStates>? state = null, Func<string>? read = null) : base(owner)
+        {
+            this.action = action;
+            this.press = press;
+            this.state = state;
+            this.read = read;
+        }
+
+        public override string? DefaultAction => action ?? base.DefaultAction;
+        public override AccessibleStates State => base.State | (state?.Invoke() ?? AccessibleStates.None);
+        public override string? Value => read != null ? read() : base.Value;
+
+        public override void DoDefaultAction()
+        {
+            if (press != null) press();
+            else base.DoDefaultAction();
+        }
+    }
+
+    // A row that never shows a native scroll bar: children past the right edge scroll sideways with the
+    // mouse wheel or ScrollIntoView. Children are laid out at -ScrollX through DisplayRectangle.
     internal sealed class TabStripPanel : FlowLayoutPanel
     {
+        private int scrollX;
+
         public TabStripPanel()
         {
             DoubleBuffered = true;
             ResizeRedraw = true;
+        }
+
+        public int ScrollX
+        {
+            get => scrollX;
+            set
+            {
+                int content = 0;
+                foreach (Control child in Controls) content += child.Width;
+                int next = Math.Clamp(value, 0, Math.Max(0, content - ClientSize.Width));
+                if (next == scrollX) return;
+                scrollX = next;
+                PerformLayout();
+            }
+        }
+
+        public override Rectangle DisplayRectangle
+        {
+            get
+            {
+                var display = base.DisplayRectangle;
+                display.X -= scrollX;
+                display.Width += scrollX;
+                return display;
+            }
+        }
+
+        // Children are equal-width tabs with no margins, so child n starts at n widths. Also re-clamps
+        // ScrollX after a resize or a closed tab.
+        public void ScrollIntoView(int index)
+        {
+            if (Controls.Count == 0) return;
+            int width = Controls[0].Width;
+            int left = Math.Clamp(index, 0, Controls.Count - 1) * width;
+            ScrollX = Math.Min(left, Math.Max(scrollX, left + width - ClientSize.Width));
+        }
+
+        public void ScrollIntoView(Control child) => ScrollIntoView(Controls.GetChildIndex(child, false));
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            // One tab per notch; wheel down moves toward the later tabs.
+            if (Controls.Count > 0) ScrollX -= Math.Sign(e.Delta) * Controls[0].Width;
+            if (e is HandledMouseEventArgs handled) handled.Handled = true;
+            base.OnMouseWheel(e);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -2523,7 +2808,6 @@ namespace TYPR
         }
     }
 
-    // The footer's state dot: --positive when ready, --accent while counting down or typing.
     // The narrow-window sidebar as a drawer: the sidebar on --bg at the left, the editor behind it dimmed,
     // and a soft shadow off the drawer's edge instead of a hard line. WinForms children can't be
     // translucent, so the sheet covers the work area and paints a snapshot of it; a click on the
@@ -2572,11 +2856,11 @@ namespace TYPR
             g.Clear(Theme.Bg);
             if (backdrop != null) g.DrawImageUnscaled(backdrop, 0, -backdropOffset);
             int edge = Drawer.Right;
-            using (var dim = new SolidBrush(Color.FromArgb(Theme.Dark ? 120 : 64, 0, 0, 0)))
+            using (var dim = new SolidBrush(Theme.Scrim))
                 g.FillRectangle(dim, edge, 0, Width - edge, Height);
             var shadow = new Rectangle(edge, 0, ShadowWidth, Height);
             using var brush = new System.Drawing.Drawing2D.LinearGradientBrush(shadow,
-                Color.FromArgb(Theme.Dark ? 110 : 48, 0, 0, 0), Color.FromArgb(0, 0, 0, 0),
+                Theme.Shadow, Color.FromArgb(0, 0, 0, 0),
                 System.Drawing.Drawing2D.LinearGradientMode.Horizontal);
             g.FillRectangle(brush, shadow);
         }
@@ -2601,12 +2885,13 @@ namespace TYPR
         public const string Stopwatch = "\uE916";
         public const string Pulse = "\uE9D9";
         public const string Enter = "\uE751";
+        public const string LineNumbers = "\uE8FD"; // BulletedList: markers down the left of lines
         public const string Play = "\uE768";
         public const string Stop = "\uE71A";
         public const string Sidebar = "\uE90C";
     }
 
-    // A 26px rounded tile tinted with its colour at low strength, the glyph in full colour.
+    // A UiSize.Tile rounded tile tinted with its colour at low strength, the glyph in full colour.
     internal sealed class RowIcon : Control
     {
         public string Glyph { get; set; } = "";
@@ -2614,11 +2899,13 @@ namespace TYPR
 
         public RowIcon()
         {
-            Size = new Size(26, 26);
-            Margin = new Padding(0, 0, UiSpacing.Small + 2, 0);
+            Size = new Size(UiSize.Tile, UiSize.Tile);
+            // --s3 of clear space to the row's title.
+            Margin = new Padding(0, 0, UiSpacing.Medium - UiSpacing.LabelInset, 0);
             Anchor = AnchorStyles.Left;
             TabStop = false;
-            AccessibleRole = AccessibleRole.Graphic;
+            // Decoration: the row's title already says what it is.
+            AccessibleRole = AccessibleRole.None;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         }
@@ -2631,7 +2918,7 @@ namespace TYPR
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             var tile = new Rectangle(0, 0, Width - 1, Height - 1);
             using (var path = RoundedPanel.CreatePath(tile, UiRadius.Small))
-            using (var brush = new SolidBrush(Theme.Blend(Color.FromArgb(Theme.Dark ? 46 : 30, Tint), ground)))
+            using (var brush = new SolidBrush(Theme.Tile(Tint, ground)))
                 g.FillPath(brush, path);
             TextRenderer.DrawText(g, Glyph, UiFont.Icon, ClientRectangle, Tint,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
@@ -2639,8 +2926,11 @@ namespace TYPR
         }
     }
 
+    // The footer's state dot: --positive when ready, --accent while counting down or typing,
+    // --negative after a problem.
     internal sealed class StatusDot : Control
     {
+        public const int Diameter = 8;
         private bool busy;
         private bool warning;
 
@@ -2676,7 +2966,7 @@ namespace TYPR
             e.Graphics.Clear(Parent?.BackColor ?? Theme.Bg);
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             using var brush = new SolidBrush(warning ? Theme.Negative : busy ? Theme.Accent : idle ? Theme.Text3 : Theme.Positive);
-            e.Graphics.FillEllipse(brush, Width / 2 - 4, Height / 2 - 4, 8, 8);
+            e.Graphics.FillEllipse(brush, (Width - Diameter) / 2, (Height - Diameter) / 2, Diameter, Diameter);
         }
     }
 
@@ -2687,7 +2977,8 @@ namespace TYPR
         {
             AutoSize = true;
             Font = UiFont.Label;
-            Padding = new Padding(UiSpacing.Small + 2, 4, UiSpacing.Small + 2, 4);
+            // --s3 at the sides like a field; the height comes from MinimumSize (the button face).
+            Padding = new Padding(UiSpacing.Medium, UiSpacing.XSmall, UiSpacing.Medium, UiSpacing.XSmall);
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         }
@@ -2700,7 +2991,7 @@ namespace TYPR
             var pill = ClientRectangle;
             pill.Width--;
             pill.Height--;
-            using (var path = RoundedPanel.CreatePath(pill, pill.Height / 2))
+            using (var path = RoundedPanel.CreatePath(pill, UiRadius.Small))
             using (var brush = new SolidBrush(Theme.Surface2))
                 g.FillPath(brush, path);
             TextRenderer.DrawText(g, Text, Font, ClientRectangle, Theme.Text2,
@@ -2731,10 +3022,10 @@ namespace TYPR
 
             int x = UiSpacing.Large;
             var logo = new Rectangle(x, (Height - 20) / 2, 20, 20);
-            using (var path = RoundedPanel.CreatePath(logo, 5))
-            using (var brush = new SolidBrush(Theme.Logo))
+            using (var path = RoundedPanel.CreatePath(logo, UiRadius.Logo))
+            using (var brush = new SolidBrush(Theme.Accent))
                 g.FillPath(brush, path);
-            TextRenderer.DrawText(g, "T", UiFont.Label, logo, Color.White,
+            TextRenderer.DrawText(g, "T", UiFont.Label, logo, Theme.OnAccent,
                 TextFormatFlags.HorizontalCenter | flags);
             x = logo.Right + UiSpacing.Medium;
 
@@ -2762,8 +3053,14 @@ namespace TYPR
         private bool closeHovered;
 
         public bool IsActive { get; set; }
+        // False hides the x (and its click), e.g. on the only tab left.
+        public bool CanClose { get; set; } = true;
         public event EventHandler? CloseRequested;
         public event EventHandler? RenameRequested;
+
+        protected override AccessibleObject CreateAccessibilityInstance() =>
+            new OwnerDrawnAccessibleObject(this, "Select", () => { if (Enabled) OnClick(EventArgs.Empty); },
+                () => AccessibleStates.Selectable | (IsActive ? AccessibleStates.Selected : AccessibleStates.None));
 
         public EditorTabPanel()
         {
@@ -2775,7 +3072,9 @@ namespace TYPR
             TabStop = true;
         }
 
-        protected override bool IsInputKey(Keys keyData) => keyData == Keys.Space || base.IsInputKey(keyData);
+        // Left/Right move along the strip (roving focus) instead of to the next control.
+        protected override bool IsInputKey(Keys keyData) =>
+            keyData is Keys.Space or Keys.Left or Keys.Right || base.IsInputKey(keyData);
 
         protected override void OnKeyDown(KeyEventArgs e)
         {
@@ -2799,7 +3098,12 @@ namespace TYPR
 
         protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
         protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
-        protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            Cursor = Enabled ? Cursors.Hand : Cursors.Default;
+            Invalidate();
+            base.OnEnabledChanged(e);
+        }
         protected override void OnPaintBackground(PaintEventArgs e) { }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -2810,14 +3114,16 @@ namespace TYPR
                 using (var line = new SolidBrush(Theme.Line))
                 {
                     g.FillRectangle(line, 0, Height - 1, Width, 1);                  // the editor's top edge
-                    g.FillRectangle(line, Width - 1, 10, 1, Height - 20);            // short divider to the next tab
+                    g.FillRectangle(line, Width - 1, 0, 1, Height);                 // full-height divider to the next tab, like VS Code
                 }
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            // Disabled (during a run): --text-3 ink, --line edges, no hover, no x.
+            bool lit = hovered && Enabled;
+            Color fill = IsActive ? Theme.Surface1 : lit ? Theme.Hover(Theme.Bg) : Theme.Bg;
             // Active (and hovered) tabs have rounded top corners and no bottom edge, so the active one
             // runs straight into the editor below.
-            if (IsActive || (hovered && Enabled))
+            if (IsActive || lit)
             {
-                Color fill = IsActive ? Theme.Surface1 : Theme.Blend(Color.FromArgb(128, Theme.Surface1), Theme.Bg);
                 using (var shape = TabOutline(closed: true))
                 using (var brush = new SolidBrush(fill))
                     g.FillPath(brush, shape);
@@ -2834,12 +3140,12 @@ namespace TYPR
                 TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
 
             // Like VS Code, the close button shows on the active tab and on hover only.
-            if (IsActive || hovered || Focused)
+            if (ShowsClose && (IsActive || hovered || Focused))
             {
                 Rectangle close = GetCloseButtonBounds();
-                if (closeHovered && Enabled)
-                    using (var brush = new SolidBrush(Theme.Surface3))
-                    using (var path = RoundedPanel.CreatePath(close, 4))
+                if (closeHovered)
+                    using (var brush = new SolidBrush(Theme.Hover(fill)))
+                    using (var path = RoundedPanel.CreatePath(close, UiRadius.XSmall))
                         g.FillPath(brush, path);
                 int inset = 6;
                 using var pen = new Pen(ink, 1.4f)
@@ -2883,9 +3189,11 @@ namespace TYPR
             g.DrawLine(pen, page.Left + 3, cy + 3, page.Right - 3, cy + 3);
         }
 
+        private bool ShowsClose => CanClose && Enabled;
+
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left && GetCloseButtonBounds().Contains(e.Location))
+            if (e.Button == MouseButtons.Left && ShowsClose && GetCloseButtonBounds().Contains(e.Location))
             {
                 CloseRequested?.Invoke(this, EventArgs.Empty);
                 return;
@@ -2906,7 +3214,7 @@ namespace TYPR
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            bool overClose = GetCloseButtonBounds().Contains(e.Location);
+            bool overClose = ShowsClose && GetCloseButtonBounds().Contains(e.Location);
             if (!hovered || overClose != closeHovered)
             {
                 hovered = true;
@@ -2929,11 +3237,12 @@ namespace TYPR
         private Rectangle GetTextBounds()
         {
             int left = UiSpacing.Medium + 11 + 6;
-            return new Rectangle(left, 0, Math.Max(0, GetCloseButtonBounds().Left - 4 - left), Height);
+            int right = CanClose ? GetCloseButtonBounds().Left - 4 : Width - UiSpacing.Small;
+            return new Rectangle(left, 0, Math.Max(0, right - left), Height);
         }
     }
 
-    // The strip's + : a round icon button that fills --surface-2 on hover.
+    // The strip's + : a rounded icon button that fills with the hover colour.
     internal sealed class AddTextButton : Control
     {
         private bool hovered;
@@ -2943,6 +3252,16 @@ namespace TYPR
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
             TabStop = true;
+        }
+
+        protected override AccessibleObject CreateAccessibilityInstance() =>
+            new OwnerDrawnAccessibleObject(this, "Press", () => { if (Enabled) OnClick(EventArgs.Empty); });
+
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            Cursor = Enabled ? Cursors.Hand : Cursors.Default;
+            Invalidate();
+            base.OnEnabledChanged(e);
         }
 
         protected override bool IsInputKey(Keys keyData) => keyData == Keys.Space || base.IsInputKey(keyData);
@@ -2969,11 +3288,17 @@ namespace TYPR
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             using (var line = new SolidBrush(Theme.Line))
                 g.FillRectangle(line, 0, Height - 1, Width, 1);
-            var circle = new Rectangle(Width / 2 - 13, Height / 2 - 13, 26, 26);
+            var circle = new Rectangle((Width - UiSize.Tile) / 2, (Height - UiSize.Tile) / 2, UiSize.Tile, UiSize.Tile);
+            Color ground = Parent?.BackColor ?? Theme.Bg;
             if (hovered && Enabled)
-                using (var brush = new SolidBrush(Theme.Surface2))
-                using (var path = RoundedPanel.CreatePath(circle, 6))
+                using (var brush = new SolidBrush(Theme.Hover(ground)))
+                using (var path = RoundedPanel.CreatePath(circle, UiRadius.Small))
                     g.FillPath(brush, path);
+            else if (!Enabled)
+                // Disabled: a --line edge and --text-3 ink, like the other locked controls.
+                using (var pen = new Pen(Theme.Line))
+                using (var path = RoundedPanel.CreatePath(new Rectangle(circle.X, circle.Y, circle.Width - 1, circle.Height - 1), UiRadius.Small))
+                    g.DrawPath(pen, path);
 
             int cx = Width / 2;
             int cy = Height / 2;
@@ -2988,8 +3313,8 @@ namespace TYPR
             if (Focused && ShowFocusCues)
             {
                 var ring = circle;
-                ring.Inflate(3, 3);
-                FocusRing.Draw(g, ring, 9);
+                ring.Inflate(FocusRing.Room, FocusRing.Room);
+                FocusRing.Draw(g, ring, FocusRing.Radius(UiRadius.Small));
             }
         }
     }
@@ -3073,11 +3398,11 @@ namespace TYPR
     {
         Primary,   // --accent / --on-accent
         Secondary, // --surface-2 / --text
-        Keycap,    // a shortcut key: --surface-2, --r-sm, --fs-sm bold
+        Keycap,    // a shortcut key: looks the same as Secondary
         Danger     // --negative / --on-negative, destructive confirms only
     }
 
-    // CNTR's .btn: --r-md, --fs-md bold; a press shrinks it to 0.97 over --dur-tap.
+    // CNTR's .btn: --r-md, --fs-sm bold; a press shrinks it to 0.97 over --dur-tap.
     // A plain Control, not Button: Button's own native painting showed through the owner-draw.
     // IButtonControl keeps AcceptButton, CancelButton and DialogResult working in dialogs.
     internal sealed class RoundedButton : Control, IButtonControl
@@ -3093,7 +3418,7 @@ namespace TYPR
             set
             {
                 kind = value;
-                Font = value == ButtonKind.Keycap ? UiFont.Label : UiFont.Button;
+                Font = UiFont.Button;
                 Invalidate();
             }
         }
@@ -3118,6 +3443,9 @@ namespace TYPR
         {
             if (Enabled) OnClick(EventArgs.Empty);
         }
+
+        protected override AccessibleObject CreateAccessibilityInstance() =>
+            new OwnerDrawnAccessibleObject(this, "Press", PerformClick);
 
         protected override void OnClick(EventArgs e)
         {
@@ -3214,7 +3542,8 @@ namespace TYPR
             int shrinkX = (int)Math.Round(face.Width * 0.03 * press / 2);
             int shrinkY = (int)Math.Round(face.Height * 0.03 * press / 2);
             face.Inflate(-shrinkX, -shrinkY);
-            int radius = kind == ButtonKind.Keycap ? UiRadius.Small : UiRadius.Medium;
+            int radius = UiRadius.Small; // one radius for every button
+            int ringRadius = FocusRing.Radius(radius);
 
             Color ground = Parent?.BackColor ?? Theme.Bg;
             // Disabled: no fill, a --line outline, so it can't pass for the live grey button.
@@ -3232,32 +3561,35 @@ namespace TYPR
                 _ => Theme.Text
             };
 
-            if (kind == ButtonKind.Keycap)
+            if (Enabled)
             {
-                // A key: --input-border edge with a 2px lip at the bottom; the lip goes on press.
+                // Every button is drawn as a key: a darker edge with a 2px lip at the bottom; the lip goes on press.
+                Color edge = kind switch
+                {
+                    ButtonKind.Primary or ButtonKind.Danger => Theme.Blend(Color.FromArgb(64, 0, 0, 0), fill),
+                    _ => Theme.InputBorder
+                };
                 int lip = press > 0.5 ? 1 : 2;
                 using (var path = RoundedPanel.CreatePath(face, radius))
-                using (var brush = new SolidBrush(Enabled ? Theme.InputBorder : Theme.Line))
+                using (var brush = new SolidBrush(edge))
                     g.FillPath(brush, path);
                 face = new Rectangle(face.X + 1, face.Y + 1 + (2 - lip), face.Width - 2, face.Height - 2 - lip);
-                radius--;
+                using (var path = RoundedPanel.CreatePath(face, radius - 1))
+                using (var brush = new SolidBrush(fill))
+                    g.FillPath(brush, path);
             }
-            else if (!Enabled)
+            else
             {
                 using var outline = RoundedPanel.CreatePath(new Rectangle(face.X, face.Y, face.Width - 1, face.Height - 1), radius);
                 using var pen = new Pen(Theme.Line);
                 g.DrawPath(pen, outline);
             }
-            if (Enabled || kind == ButtonKind.Keycap)
-                using (var path = RoundedPanel.CreatePath(face, radius))
-                using (var brush = new SolidBrush(Enabled ? fill : Theme.Surface1))
-                    g.FillPath(brush, path);
             TextRenderer.DrawText(g, Text, Font, face, ink,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
                 TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
 
             if (Focused && ShowFocusCues)
-                FocusRing.Draw(g, ClientRectangle, radius + 2);
+                FocusRing.Draw(g, ClientRectangle, ringRadius);
         }
 
         protected override void Dispose(bool disposing)
@@ -3277,6 +3609,16 @@ namespace TYPR
         private double progress = 1;
 
         public bool Checked { get; private set; }
+        public event EventHandler? CheckedChanged;
+
+        // The state the switch opens with: no slide and no CheckedChanged.
+        public void SetInitial(bool on)
+        {
+            Checked = on;
+            position = on ? 1 : 0;
+            AccessibleDescription = on ? "On" : "Off";
+            Invalidate();
+        }
 
         public ToggleCheckBox()
         {
@@ -3288,6 +3630,10 @@ namespace TYPR
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
         }
+
+        protected override AccessibleObject CreateAccessibilityInstance() =>
+            new OwnerDrawnAccessibleObject(this, "Toggle", () => { if (Enabled) OnClick(EventArgs.Empty); },
+                () => Checked ? AccessibleStates.Checked : AccessibleStates.None);
 
         public void Toggle()
         {
@@ -3302,6 +3648,7 @@ namespace TYPR
                 position = t >= 1 ? to : from + (to - from) * Motion.EaseLiquid(t);
                 Invalidate();
             });
+            CheckedChanged?.Invoke(this, EventArgs.Empty);
         }
 
         protected override bool IsInputKey(Keys keyData) => keyData == Keys.Space || base.IsInputKey(keyData);
@@ -3345,13 +3692,19 @@ namespace TYPR
                     g.FillPath(brush, path);
                 if (on > 0)
                 {
-                    var saved = g.Save();
-                    g.SetClip(path);
-                    using (var brush = new SolidBrush(Enabled ? Theme.Accent : Theme.Blend(Color.FromArgb(110, Theme.Text3), Theme.Surface2)))
-                        g.FillRectangle(brush, track.X, track.Y, (float)(track.Width * on), track.Height);
-                    g.Restore(saved);
+                    // A growing pill, not a clipped rectangle: a clip region has no anti-aliasing and gave jagged edges.
+                    int fill = Math.Max(track.Height, (int)Math.Round(track.Width * on));
+                    using var grown = RoundedPanel.CreatePath(new Rectangle(track.X, track.Y, fill, track.Height), track.Height / 2);
+                    using (var brush = new SolidBrush(Enabled ? Theme.Accent : Theme.LockedOn))
+                        g.FillPath(brush, grown);
                 }
             }
+            // The off track (--surface-3) is 1.3:1 on the row; an --input-border edge (3.1:1) shows it,
+            // fading out as the accent fills in.
+            if (Enabled && on < 1)
+                using (var edge = RoundedPanel.CreatePath(new Rectangle(track.X, track.Y, track.Width - 1, track.Height - 1), (track.Height - 1) / 2))
+                using (var pen = new Pen(Color.FromArgb((int)(255 * (1 - on)), Theme.InputBorder)))
+                    g.DrawPath(pen, edge);
 
             // Stretch to 1.55 x 0.8 on the way, squish to 0.82 x 1.14 at the edge, then settle.
             double sx = 1, sy = 1;
@@ -3397,20 +3750,37 @@ namespace TYPR
         }
     }
 
-    // CNTR's input: --surface-1, 1px --line-strong border, --r-md; focus turns the border --text-2.
+    // CNTR's input: --surface-1, 1px --input-border edge, --r-md; focus draws the 2px focus ring on that
+    // edge. Disabled: --line edge, --text-3 ink. An optional unit ("cpm") sits inside, right, in --text-3.
     internal sealed class TextField : UserControl
     {
         private readonly RoundedPanel frame;
         private readonly Panel host;
+        private string? unit;
         public TextBox Input { get; } = new TextBox();
+
+        public string? Unit
+        {
+            get => unit;
+            set
+            {
+                unit = value;
+                int room = string.IsNullOrEmpty(value) ? 0 : TextRenderer.MeasureText(value, UiFont.Small).Width + 2;
+                // A unit takes the right padding's place, and the box gives the number the left padding's room.
+                frame.Padding = room == 0
+                    ? new Padding(UiSpacing.Medium, 2, UiSpacing.Medium, 2)
+                    : new Padding(UiSpacing.Small, 2, UiSpacing.Small + room, 2);
+                frame.Invalidate();
+            }
+        }
 
         public TextField()
         {
-            Height = 26;
+            Height = UiSize.Field;
             frame = new RoundedPanel
             {
                 Dock = DockStyle.Fill,
-                CornerRadius = UiRadius.Medium,
+                CornerRadius = UiRadius.Small,
                 Padding = new Padding(UiSpacing.Medium, 2, UiSpacing.Medium, 2),
                 Margin = Padding.Empty
             };
@@ -3423,21 +3793,37 @@ namespace TYPR
                 Input.Width = host.ClientSize.Width;
                 Input.Top = Math.Max(0, (host.ClientSize.Height - Input.Height) / 2);
             };
-            Input.GotFocus += (_, __) => { frame.BorderColor = Theme.Text2; frame.Invalidate(); };
-            Input.LostFocus += (_, __) => { frame.BorderColor = Theme.InputBorder; frame.Invalidate(); };
+            Input.GotFocus += (_, __) => ApplyTheme();
+            Input.LostFocus += (_, __) => ApplyTheme();
+            frame.Paint += (_, e) =>
+            {
+                if (!string.IsNullOrEmpty(unit))
+                {
+                    var room = new Rectangle(frame.ClientSize.Width - frame.Padding.Right, 0, frame.Padding.Right - UiSpacing.Small, frame.ClientSize.Height);
+                    TextRenderer.DrawText(e.Graphics, unit, UiFont.Small, room, Theme.Text3,
+                        TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+                }
+            };
             host.Controls.Add(Input);
             frame.Controls.Add(host);
             Controls.Add(frame);
             ApplyTheme();
         }
 
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            ApplyTheme();
+            base.OnEnabledChanged(e);
+        }
+
         public void ApplyTheme()
         {
             frame.BackColor = Theme.Surface1;
-            frame.BorderColor = Input.Focused ? Theme.Text2 : Theme.InputBorder;
+            // Focus is the same 1px edge as at rest, in the accent colour (6:1 on the box), not a second, thicker ring.
+            frame.BorderColor = !Enabled ? Theme.Line : Input.Focused ? Theme.Accent : Theme.InputBorder;
             host.BackColor = Theme.Surface1;
             Input.BackColor = Theme.Surface1;
-            Input.ForeColor = Theme.Text;
+            Input.ForeColor = Enabled ? Theme.Text : Theme.Text3;
             Invalidate(true);
         }
     }
@@ -3484,12 +3870,24 @@ namespace TYPR
             set => input.AccessibleName = value;
         }
 
+        // Shown inside the box, right of the number.
+        public string Unit
+        {
+            set => field.Unit = value;
+        }
+
+        // PageUp / PageDown step.
+        public int PageStep { get; set; } = 10;
+
+        // A typed value outside Minimum..Maximum was pulled into range.
+        public event EventHandler? Clamped;
+
         public void ApplyTheme() => field.ApplyTheme();
 
         public NumberInput()
         {
-            Height = 26;
-            MinimumSize = new Size(64, 26);
+            Height = UiSize.Field;
+            MinimumSize = new Size(64, UiSize.Field);
             input.Font = UiFont.SmallBold;
             input.TextAlign = HorizontalAlignment.Right;
             input.Text = "0";
@@ -3502,6 +3900,8 @@ namespace TYPR
                 // Commit a typed value first, so Up/Down step from it instead of discarding it.
                 if (e.KeyCode == Keys.Up) { CommitInput(); Value++; e.Handled = true; }
                 if (e.KeyCode == Keys.Down) { CommitInput(); Value--; e.Handled = true; }
+                if (e.KeyCode == Keys.PageUp) { CommitInput(); Value += PageStep; e.Handled = true; }
+                if (e.KeyCode == Keys.PageDown) { CommitInput(); Value -= PageStep; e.Handled = true; }
                 if (e.KeyCode == Keys.Enter) { CommitInput(); e.Handled = true; e.SuppressKeyPress = true; }
             };
             input.Leave += (_, __) => CommitInput();
@@ -3513,7 +3913,12 @@ namespace TYPR
 
         private void CommitInput()
         {
-            if (int.TryParse(input.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)) SetValue(parsed);
+            // long, so a pasted 3000000000 is clamped (and said) instead of silently dropped.
+            if (long.TryParse(input.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed))
+            {
+                SetValue(parsed);
+                if (parsed != value) Clamped?.Invoke(this, EventArgs.Empty);
+            }
             else input.Text = value.ToString();
         }
 
@@ -3532,12 +3937,47 @@ namespace TYPR
         private const int EM_GETFIRSTVISIBLELINE = 0x00CE;
         private const int EM_GETLINECOUNT = 0x00BA;
         private const int EM_LINESCROLL = 0x00B6;
+        private const int EM_GETRECT = 0x00B2;
+        private const int EM_LINEINDEX = 0x00BB;
+        private const int EM_LINEFROMCHAR = 0x00C9;
+        private const int EM_POSFROMCHAR = 0x00D6;
 
         public event EventHandler? ViewChanged;
 
         public int FirstVisibleLine => IsHandleCreated ? (int)NativeMethods.SendMessage(Handle, EM_GETFIRSTVISIBLELINE, IntPtr.Zero, IntPtr.Zero) : 0;
         public int LineCount => IsHandleCreated ? (int)NativeMethods.SendMessage(Handle, EM_GETLINECOUNT, IntPtr.Zero, IntPtr.Zero) : 1;
         public int VisibleLines => Math.Max(1, ClientSize.Height / Math.Max(1, Font.Height));
+        // The display line holding the caret; with a selection, the line where the selection starts.
+        public int CaretLine => IsHandleCreated ? (int)NativeMethods.SendMessage(Handle, EM_LINEFROMCHAR, (IntPtr)(-1), IntPtr.Zero) : 0;
+
+        // The first character and the client y of each display line from the top of the view down to its
+        // bottom edge, as the edit control itself places them.
+        public void VisibleRows(List<int> starts, List<int> tops)
+        {
+            starts.Clear();
+            tops.Clear();
+            if (!IsHandleCreated) return;
+            int length = TextLength;
+            int rowHeight = TextRenderer.MeasureText("0", Font, Size.Empty, TextFormatFlags.NoPadding).Height;
+            for (int row = FirstVisibleLine, count = LineCount; row < count; row++)
+            {
+                int start = (int)NativeMethods.SendMessage(Handle, EM_LINEINDEX, (IntPtr)row, IntPtr.Zero);
+                if (start < 0) break;
+                int top;
+                // EM_POSFROMCHAR has no answer past the last character: the empty line after a final newline, or no text.
+                if (start < length) top = (short)((long)NativeMethods.SendMessage(Handle, EM_POSFROMCHAR, (IntPtr)start, IntPtr.Zero) >> 16);
+                else if (tops.Count > 0) top = tops[^1] + rowHeight;
+                else
+                {
+                    var format = new NativeMethods.RECT();
+                    NativeMethods.SendMessage(Handle, EM_GETRECT, IntPtr.Zero, ref format);
+                    top = format.Top;
+                }
+                if (top >= ClientSize.Height) break;
+                starts.Add(start);
+                tops.Add(top);
+            }
+        }
 
         public void ScrollToLine(int line)
         {
@@ -3545,14 +3985,39 @@ namespace TYPR
             if (delta != 0) NativeMethods.SendMessage(Handle, EM_LINESCROLL, IntPtr.Zero, (IntPtr)delta);
         }
 
+        // The placeholder shows only while empty and unfocused, so focus changes repaint it.
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); if (TextLength == 0) Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); if (TextLength == 0) Invalidate(); }
+
         protected override void WndProc(ref Message m)
         {
+            const int WM_PAINT = 0x000F;
+            if (m.Msg == WM_PAINT)
+            {
+                // TextBox would add PlaceholderText in SystemColors.GrayText (2.96:1 on the dark editor), so
+                // paint natively and add it in --text-3 (5.6:1) instead, with TextBox's visibility.
+                DefWndProc(ref m);
+                if (TextLength == 0 && !Focused && !string.IsNullOrEmpty(PlaceholderText))
+                {
+                    using var g = CreateGraphics();
+                    // The formatting rectangle: where typed text starts, so the hint doesn't jump when typing begins.
+                    var format = new NativeMethods.RECT();
+                    NativeMethods.SendMessage(Handle, EM_GETRECT, IntPtr.Zero, ref format);
+                    var bounds = Rectangle.FromLTRB(format.Left, format.Top, format.Right, format.Bottom);
+                    TextRenderer.DrawText(g, PlaceholderText, Font, bounds, Theme.Text3,
+                        TextFormatFlags.NoPadding | TextFormatFlags.Top | TextFormatFlags.Left |
+                        TextFormatFlags.EndEllipsis | TextFormatFlags.WordBreak);
+                }
+                return;
+            }
             base.WndProc(ref m);
-            // Messages after which the first visible line or the line count can change:
-            // size, set text, key down, char, mouse move (drag-select), wheel, scroll, paste.
+            // Messages after which the first visible line, the line count or the caret's line can change:
+            // size, set text, key down, char, mouse move (drag-select), click, wheel, scroll, paste,
+            // select (EM_SETSEL), line scroll (EM_LINESCROLL).
             switch (m.Msg)
             {
-                case 0x0005: case 0x000C: case 0x0100: case 0x0102: case 0x0200: case 0x020A: case 0x0115: case 0x0302:
+                case 0x0005: case 0x000C: case 0x0100: case 0x0102: case 0x0200: case 0x0201: case 0x020A: case 0x0115: case 0x0302:
+                case 0x00B1: case 0x00B6:
                     ViewChanged?.Invoke(this, EventArgs.Empty);
                     break;
             }
@@ -3621,7 +4086,7 @@ namespace TYPR
             var pill = new Rectangle(Width - width - 2, thumb.Y, width, thumb.Height);
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             using var path = RoundedPanel.CreatePath(pill, width / 2);
-            using var brush = new SolidBrush(Color.FromArgb(active ? 220 : 150, Theme.Text3));
+            using var brush = new SolidBrush(Color.FromArgb(active ? Theme.RailActiveAlpha : Theme.RailAlpha, Theme.Text3));
             g.FillPath(brush, path);
         }
 
@@ -3673,9 +4138,131 @@ namespace TYPR
         protected override void OnResize(EventArgs e) { base.OnResize(e); Sync(); }
     }
 
+    // VS Code-style line numbers left of the editor text, on the card's own surface: a wrapped line is
+    // numbered on its first display line only, and the caret's line is brighter. Rows come from the edit
+    // control (EditorBox.VisibleRows), so they line up with the text at any font size or DPI.
+    internal sealed class LineNumberGutter : Control
+    {
+        private EditorBox? target;
+        private string text = "";
+        // Line breaks before the last first-visible row, so scrolling counts only the rows it moved over.
+        private (int Index, int Breaks) anchor;
+        private (int first, int lines, int caret, int width) shown;
+        private readonly List<int> starts = new();
+        private readonly List<int> tops = new();
+
+        public EditorBox? Target
+        {
+            get => target;
+            set
+            {
+                target = value;
+                if (target == null) return;
+                target.ViewChanged += (_, __) => Sync();
+                target.TextChanged += (_, __) => { if (Visible) Reload(); };
+            }
+        }
+
+        public LineNumberGutter()
+        {
+            TabStop = false;
+            Margin = Padding.Empty;
+            // Decoration: the editor already tells a screen reader which line the caret is on.
+            AccessibleRole = AccessibleRole.None;
+            SetStyle(ControlStyles.Selectable, false);
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        // At least two digits, so the text doesn't shift until line 100.
+        internal static int Digits(int lineCount) => Math.Max(2, lineCount.ToString(CultureInfo.InvariantCulture).Length);
+
+        // Only CRLF ends a line: the Win32 edit control shows a lone \n or \r inside its line.
+        internal static int LineBreaks(ReadOnlySpan<char> text) => text.Count("\r\n".AsSpan());
+
+        // The 1-based line number of each display row starting at rowStarts (top to bottom), or 0 for a row
+        // that continues a wrapped line. anchor carries the count between calls; reset it when the text changes.
+        internal static int[] RowNumbers(string text, IReadOnlyList<int> rowStarts, ref (int Index, int Breaks) anchor)
+        {
+            var numbers = new int[rowStarts.Count];
+            var (at, breaks) = anchor.Index <= text.Length ? anchor : (0, 0);
+            for (int i = 0; i < rowStarts.Count; i++)
+            {
+                int start = Math.Clamp(rowStarts[i], 0, text.Length);
+                breaks += start >= at
+                    ? LineBreaks(text.AsSpan(at, start - at))
+                    : -LineBreaks(text.AsSpan(start, at - start));
+                at = start;
+                if (i == 0) anchor = (at, breaks);
+                bool firstRow = start == 0 || (start >= 2 && text[start - 2] == '\r' && text[start - 1] == '\n');
+                numbers[i] = firstRow ? breaks + 1 : 0;
+            }
+            return numbers;
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (Visible) Reload();
+        }
+
+        // shortcut: copies the whole text once per edit while shown (about 1 ms at 1M characters); share
+        // MainForm's TextChanged copy if huge texts lag.
+        private void Reload()
+        {
+            if (target == null) return;
+            text = target.Text;
+            anchor = default;
+            int digit = TextRenderer.MeasureText("0", target.Font, Size.Empty, TextFormatFlags.NoPadding).Width;
+            int width = Digits(LineBreaks(text) + 1) * digit + UiSpacing.Medium;
+            if (Width != width) Width = width;
+            Invalidate();
+        }
+
+        private void Sync()
+        {
+            if (target == null || !Visible) return;
+            var now = (target.FirstVisibleLine, target.LineCount, target.CaretLine, target.ClientSize.Width);
+            if (now == shown) return;
+            shown = now;
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(Parent?.BackColor ?? Theme.Surface1);
+            if (target == null) return;
+            int first = target.FirstVisibleLine;
+            target.VisibleRows(starts, tops);
+            var numbers = RowNumbers(text, starts, ref anchor);
+            // The caret's line: the numbered row at or above the caret's display row.
+            int current = target.CaretLine - first;
+            while (current >= 0 && current < numbers.Length && numbers[current] == 0) current--;
+            int offset = target.Top - Top;
+            for (int i = 0; i < numbers.Length; i++)
+            {
+                if (numbers[i] == 0) continue;
+                int y = tops[i] + offset;
+                TextRenderer.DrawText(g, numbers[i].ToString(CultureInfo.InvariantCulture), target.Font,
+                    new Rectangle(0, y, Width - UiSpacing.Medium, Math.Max(1, Height - y)),
+                    i == current ? Theme.Text2 : Theme.Text3,
+                    TextFormatFlags.NoPadding | TextFormatFlags.Right | TextFormatFlags.Top | TextFormatFlags.SingleLine);
+            }
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            // Wheel over the numbers scrolls the editor, 3 lines a notch like the scroll bar.
+            target?.ScrollToLine(target.FirstVisibleLine - Math.Sign(e.Delta) * 3);
+            base.OnMouseWheel(e);
+        }
+    }
+
     internal sealed class Slider : Control
     {
         private const int Pad = 12;
+        private const int Inset = 9;
         private int minimum;
         private int maximum = 50;
         private int val = 5;
@@ -3705,6 +4292,7 @@ namespace TYPR
                 if (clamped == val) return;
                 val = clamped;
                 AccessibleDescription = val + "%";
+                AccessibilityNotifyClients(AccessibleEvents.ValueChange, -1);
                 Invalidate();
                 ValueChanged?.Invoke(this, EventArgs.Empty);
             }
@@ -3716,9 +4304,14 @@ namespace TYPR
             TabStop = true;
             Cursor = Cursors.Hand;
             AccessibleRole = AccessibleRole.Slider;
+            // Value's setter skips an unchanged value, so the starting one is described here.
+            AccessibleDescription = val + "%";
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
         }
+
+        protected override AccessibleObject CreateAccessibilityInstance() =>
+            new OwnerDrawnAccessibleObject(this, null, null, read: () => val + "%");
 
         private double Fraction => maximum <= minimum ? 0 : (double)(val - minimum) / (maximum - minimum);
 
@@ -3731,18 +4324,17 @@ namespace TYPR
 
             var track = new Rectangle(Pad, Height / 2 - 2, Math.Max(1, Width - Pad * 2), 4);
             using (var path = RoundedPanel.CreatePath(track, 2))
-            using (var brush = new SolidBrush(Theme.Blend(Color.FromArgb(140, Theme.Text3), ground)))
+            using (var brush = new SolidBrush(Theme.Blend(Color.FromArgb(Theme.RailAlpha, Theme.Text3), ground)))
                 g.FillPath(brush, path);
 
             Color active = Enabled ? Theme.Accent : Theme.Text3;
-            int fillWidth = (int)(track.Width * Fraction);
-            if (fillWidth > 8)
-                using (var path = RoundedPanel.CreatePath(new Rectangle(track.X, track.Y, fillWidth, track.Height), 2))
-                using (var brush = new SolidBrush(active))
-                    g.FillPath(brush, path);
+            // Thumb centre travels Inset..Width-Inset so the thumb stays on the rail at both ends.
+            int cx = track.X + Inset + (int)((track.Width - Inset * 2) * Fraction);
+            using (var path = RoundedPanel.CreatePath(new Rectangle(track.X, track.Y, cx - track.X, track.Height), 2))
+            using (var brush = new SolidBrush(active))
+                g.FillPath(brush, path);
 
             int radius = hovered || dragging ? 9 : 8;
-            int cx = track.X + fillWidth;
             int cy = Height / 2;
             using (var halo = new SolidBrush(ground))
                 g.FillEllipse(halo, cx - radius - 2, cy - radius - 2, (radius + 2) * 2, (radius + 2) * 2);
@@ -3804,8 +4396,8 @@ namespace TYPR
 
         private void UpdateFromX(int x)
         {
-            int usable = Math.Max(1, Width - Pad * 2);
-            double frac = Math.Max(0, Math.Min(1, (x - Pad) / (double)usable));
+            int usable = Math.Max(1, Width - (Pad + Inset) * 2);
+            double frac = Math.Max(0, Math.Min(1, (x - Pad - Inset) / (double)usable));
             Value = minimum + (int)Math.Round(frac * (maximum - minimum));
         }
     }
@@ -3854,7 +4446,7 @@ namespace TYPR
         protected override void OnPaint(PaintEventArgs e)
         {
             bool closeHover = hovered && Kind == WindowCaptionButtonKind.Close;
-            Color background = !hovered ? Theme.Bg : closeHover ? Color.FromArgb(196, 43, 28) : Theme.Surface2;
+            Color background = !hovered ? Theme.Bg : closeHover ? Theme.CloseHover : Theme.Hover(Theme.Bg);
             e.Graphics.Clear(background);
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
@@ -3883,7 +4475,8 @@ namespace TYPR
         }
     }
 
-    // The title bar's light/dark switch: a glyph that gets a --surface-2 square on hover.
+    // A title-bar icon button (the light/dark switch, the narrow-window sidebar toggle): a glyph that gets
+    // a --surface-2 square on hover or while Active.
     internal sealed class TitleIconButton : Control
     {
         private bool hovered;
@@ -3912,6 +4505,9 @@ namespace TYPR
 
         protected override bool IsInputKey(Keys keyData) => keyData == Keys.Space || base.IsInputKey(keyData);
 
+        protected override AccessibleObject CreateAccessibilityInstance() =>
+            new OwnerDrawnAccessibleObject(this, "Press", () => { if (Enabled) OnClick(EventArgs.Empty); });
+
         protected override void OnKeyDown(KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
@@ -3924,6 +4520,12 @@ namespace TYPR
 
         protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
         protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            Cursor = Enabled ? Cursors.Hand : Cursors.Default;
+            Invalidate();
+            base.OnEnabledChanged(e);
+        }
 
         protected override void OnMouseEnter(EventArgs e)
         {
@@ -3947,14 +4549,20 @@ namespace TYPR
 
             int cx = Width / 2;
             int cy = Height / 2;
-            var square = new Rectangle(cx - 13, cy - 13, 26, 26);
-            Color ground = hovered || active ? Theme.Surface2 : Theme.Bg;
-            if (hovered || active)
+            var square = new Rectangle((Width - UiSize.Tile) / 2, (Height - UiSize.Tile) / 2, UiSize.Tile, UiSize.Tile);
+            // Disabled (the theme switch during a run): no hover, a --line edge, --text-3 ink.
+            bool lit = Enabled && (hovered || active);
+            Color ground = lit ? Theme.Hover(Theme.Bg) : Theme.Bg;
+            if (lit)
                 using (var path = RoundedPanel.CreatePath(square, UiRadius.Small))
                 using (var brush = new SolidBrush(ground))
                     g.FillPath(brush, path);
+            else if (!Enabled)
+                using (var path = RoundedPanel.CreatePath(new Rectangle(square.X, square.Y, square.Width - 1, square.Height - 1), UiRadius.Small))
+                using (var pen = new Pen(Theme.Line))
+                    g.DrawPath(pen, path);
 
-            Color ink = hovered || active ? Theme.Text : Theme.Text2;
+            Color ink = !Enabled ? Theme.Text3 : lit ? Theme.Text : Theme.Text2;
             if (Glyph != null)
                 TextRenderer.DrawText(g, Glyph, UiFont.Icon, ClientRectangle, ink,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
@@ -3965,8 +4573,8 @@ namespace TYPR
             if (Focused && ShowFocusCues)
             {
                 var ring = square;
-                ring.Inflate(3, 3);
-                FocusRing.Draw(g, ring, UiRadius.Small);
+                ring.Inflate(FocusRing.Room, FocusRing.Room);
+                FocusRing.Draw(g, ring, FocusRing.Radius(UiRadius.Small));
             }
         }
 
@@ -4002,6 +4610,8 @@ namespace TYPR
     // a button row with Cancel first. Buttons say what they do (CNTR copy rules).
     internal sealed class ThemedDialog : Form
     {
+        // 24 visible from the text or field to the button faces, which sit FocusRing.Room inside their control.
+        private const int ActionsGap = UiSpacing.XLarge + UiSpacing.XSmall - FocusRing.Room;
         private readonly TableLayoutPanel layout;
         private readonly FlowLayoutPanel buttons;
 
@@ -4009,6 +4619,9 @@ namespace TYPR
         {
             // The heading below already says the title; the caption only names the app.
             Text = "TYPR";
+            // A screen reader names the dialog by what it asks, not the caption.
+            AccessibleName = title;
+            AccessibleDescription = message;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterParent;
             MinimizeBox = false;
@@ -4019,7 +4632,10 @@ namespace TYPR
             BackColor = Theme.Surface1;
             ForeColor = Theme.Text;
             Font = UiFont.Small;
-            Padding = new Padding(UiSpacing.XLarge, UiSpacing.Large, UiSpacing.XLarge, UiSpacing.Large);
+            // 10 visible on every side (owner): the text's own LabelInset makes up the left edge, and the
+            // buttons' focus-ring room the right and bottom ones.
+            const int edge = UiSpacing.Small + 2;
+            Padding = new Padding(edge - UiSpacing.LabelInset, edge, edge - FocusRing.Room, edge - FocusRing.Room);
 
             layout = new TableLayoutPanel
             {
@@ -4028,7 +4644,9 @@ namespace TYPR
                 ColumnCount = 1,
                 BackColor = Theme.Surface1,
                 Margin = Padding.Empty,
-                Padding = Padding.Empty
+                Padding = Padding.Empty,
+                // Docked, so the form's own padding applies on every side.
+                Dock = DockStyle.Fill
             };
             layout.Controls.Add(new Label
             {
@@ -4047,11 +4665,12 @@ namespace TYPR
                     MinimumSize = new Size(320, 0),
                     Font = UiFont.Small,
                     ForeColor = Theme.Text2,
-                    Margin = new Padding(0, 0, 0, UiSpacing.Large)
+                    Margin = new Padding(0, 0, FocusRing.Room, ActionsGap)
                 });
             if (body != null)
             {
-                body.Margin = new Padding(0, 0, 0, UiSpacing.Large);
+                // The buttons' face sits Room px inside their control; the same gap on the right lines the edges up.
+                body.Margin = new Padding(0, 0, FocusRing.Room, ActionsGap);
                 layout.Controls.Add(body);
             }
             buttons = new FlowLayoutPanel
@@ -4081,9 +4700,10 @@ namespace TYPR
                 Text = text,
                 Kind = kind,
                 DialogResult = result,
-                MinimumSize = new Size(88, 38),
-                Padding = new Padding(UiSpacing.XLarge, 0, UiSpacing.XLarge, 0),
-                Margin = new Padding(UiSpacing.Small - FocusRing.Room, 0, 0, 0),
+                MinimumSize = new Size(88, UiSize.Button),
+                // As the footer buttons: --s4 inside, --s2 between the visible faces.
+                Padding = new Padding(UiSpacing.Large, 0, UiSpacing.Large, 0),
+                Margin = new Padding(UiSpacing.Small - FocusRing.Room * 2, 0, 0, 0),
                 FitText = true
             };
             buttons.Controls.Add(button);
@@ -4096,29 +4716,60 @@ namespace TYPR
             NativeMethods.SetDarkTitleBar(Handle, Theme.Dark);
         }
 
-        public static bool Confirm(IWin32Window owner, string title, string message, string action)
+        // Dialogs on screen now. WM_HOTKEY still reaches the main window under a modal dialog,
+        // so the start shortcut checks this; Stop keeps working.
+        private static int openCount;
+        private bool counted;
+        public static bool AnyOpen => openCount > 0;
+
+        protected override void OnShown(EventArgs e)
+        {
+            counted = true;
+            openCount++;
+            base.OnShown(e);
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            if (counted) openCount--;
+            counted = false;
+            base.OnFormClosed(e);
+        }
+
+        public static bool Confirm(IWin32Window? owner, string title, string message, string action)
         {
             using var dialog = new ThemedDialog(title, message);
             var cancel = dialog.AddButton("Cancel", ButtonKind.Secondary, DialogResult.Cancel);
             dialog.AddButton(action, ButtonKind.Danger, DialogResult.OK);
             dialog.CancelButton = cancel;
             dialog.ActiveControl = cancel;
-            return dialog.ShowDialog(owner) == DialogResult.OK;
+            return dialog.ShowOver(owner) == DialogResult.OK;
         }
 
-        public static void Inform(IWin32Window owner, string title, string message)
+        public static void Inform(IWin32Window? owner, string title, string message)
         {
             using var dialog = new ThemedDialog(title, message);
             var close = dialog.AddButton("Close", ButtonKind.Primary, DialogResult.OK);
             dialog.CancelButton = close;
             dialog.AcceptButton = close;
             dialog.ActiveControl = close;
-            dialog.ShowDialog(owner);
+            dialog.ShowOver(owner);
+        }
+
+        // Form.ActiveForm is null while another app is in front, so fall back to TYPR's window.
+        private DialogResult ShowOver(IWin32Window? owner)
+        {
+            owner ??= Application.OpenForms.OfType<MainForm>().FirstOrDefault();
+            if (owner == null) StartPosition = FormStartPosition.CenterScreen;
+            return ShowDialog(owner);
         }
     }
 
     internal static class Program
     {
+        // True while the error dialog is up, so an error inside it can't stack dialogs without end.
+        private static bool reporting;
+
         [STAThread]
         static void Main()
         {
@@ -4133,9 +4784,21 @@ namespace TYPR
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (_, e) =>
             {
-                Theme.SaveSettings();
-                MessageBox.Show($"Something went wrong, but your texts were saved.\n\n{e.Exception.Message}",
-                    "TYPR - unexpected error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                bool saved = Theme.SaveSettings();
+                if (reporting) return;
+                reporting = true;
+                try
+                {
+                    string message = (saved
+                        ? "Something went wrong, but your texts were saved."
+                        : "Something went wrong, and your texts could not be saved.") + $"\n\n{e.Exception.Message}";
+                    try { ThemedDialog.Inform(Form.ActiveForm, "Unexpected error", message); }
+                    catch { MessageBox.Show(message, "TYPR - unexpected error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                }
+                finally
+                {
+                    reporting = false;
+                }
             };
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
             Application.EnableVisualStyles();

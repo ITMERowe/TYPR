@@ -10,7 +10,7 @@ TYPR does not collect, send or sell any data. Everything you enter stays on your
 
 ## What the app stores, and where
 
-TYPR stores your saved texts (each tab's name and text), your start and stop shortcuts, and your theme choice, in one file:
+TYPR stores your saved texts (each tab's name and text), your start and stop shortcuts, your theme choice, and the size of the window when you last closed it, in one file:
 
 ```text
 %LOCALAPPDATA%\TYPR Kimi\settings.json

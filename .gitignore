@@ -46,3 +46,6 @@ PRODUCT.md
 # Local tool state
 .omc/
 .serena/
+
+# Skill installer lockfile (local tooling)
+skills-lock.json

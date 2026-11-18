@@ -11,7 +11,9 @@ All notable changes to TYPR are documented in this file. Each version starts wit
 - Download a portable exe or an installer; no separate .NET install needed
 
 ### Added
+- Optional line numbers beside the editor text (**Line numbers** under Editor, or Ctrl+Shift+L); off by default
 - **Reset to F8 / F9** link under Shortcuts
+- TYPR remembers the window size (and maximized state) between launches
 - Global shortcuts no longer start or stop typing while one of TYPR's own dialogs (rename, delete) is open
 - VS Code-inspired dark and light interface with rounded panels, subtle borders, and compact settings controls
 - Subtle windowed-mode outline matching VS Code's frame
@@ -36,8 +38,26 @@ All notable changes to TYPR are documented in this file. Each version starts wit
 - Retained existing theme and shortcut preference storage across the app consolidation
 - Made the root project and `publish.ps1` the single build and publish path for `TYPR.exe`
 - Updated the README to describe the single interface and its settings
+- Spacing follows one 4 px scale: sidebar values, keycaps and switch share one right edge, footer and dialog buttons sit 8 px apart and line up with the editor card, the first sidebar title shares the tab labels' baseline, the drawer matches the docked sidebar, dialog errors use the body text size, and the editor hint starts where typed text does
 
 ### Fixed
+- Accessibility: the switch, tabs and slider report their state to screen readers; dialogs and inline errors are announced; stronger contrast for the editor placeholder, switch, slider rail and scroll thumb
+- Footer status puts the changing part first and the character chip shortens in narrow windows or during a run
+- Speed and Start delay show their units ("cpm", "s"); out-of-range values are explained in the status line; Page Up/Down step by 100 (speed) or 5 (delay)
+- Tabs scroll without a native scroll bar, only the active tab is a Tab stop (arrow keys move between tabs), and new tabs get the next free "Text N" name
+- Text with control characters can be cleaned from a dialog instead of being refused
+- Fixed: the maximized window growing at each launch; typing starting while Ctrl/Alt/Shift is stuck; dialogs opening behind other windows; F8 starting a run while a dialog is open; the narrow-window sidebar letting keystrokes edit hidden text
+- The pacing slider's thumb no longer hangs off the left end of its rail at low values
+- The title-bar logo uses the theme accent instead of a separate blue
+- Every button now has the key look of the shortcut keys (edge plus bottom lip), one 6 px corner radius and a minimum height (buttons 40, shortcut keys 32, text boxes 30), so none reads as a pill; the character chip is a rounded rectangle too
+- Focused text boxes show a 1 px accent edge instead of a thick 2 px white ring
+- New accent colour: watermelon neon #ff2e63 in both themes, with dark ink on it; accent-coloured text (the Reset link) uses a darker #d4144a on light surfaces so it stays readable
+- The "End with Enter" switch no longer has jagged edges when on
+- The editor no longer stops accepting text at 32,767 characters (longer pastes were silently cut)
+- Labels, buttons and dialog titles use Segoe UI Semibold instead of Bold, and dialogs have a real 10 px padding on every side (the left padding was missing) and the buttons line up with the text box edge
+- Inactive tabs no longer show a short floating divider; it now runs the full tab height
+- The "settings could not be loaded/saved" warnings and the unexpected-error message now use TYPR's own dialog instead of the Windows message box
+- Sidebar group titles ("Typing", "Shortcuts") use the stronger secondary text colour
 - Corrected rounded card borders and equalized editor padding
 - Added a subtle outer frame around the window when it is not maximized
 - Constrained maximized window bounds to the monitor work area so the taskbar remains visible

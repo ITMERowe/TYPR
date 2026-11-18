@@ -64,6 +64,7 @@ Both include .NET, so you don't install anything else. The files aren't code-sig
 | Ctrl+Tab, Ctrl+Shift+Tab | Next / previous text tab |
 | Ctrl+1 … Ctrl+8, Ctrl+9 | Jump to a tab, or to the last one |
 | Ctrl+B | Show settings when the window is narrow |
+| Ctrl+Shift+L | Show or hide line numbers |
 
 ## Privacy
 

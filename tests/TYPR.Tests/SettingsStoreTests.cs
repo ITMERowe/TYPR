@@ -24,6 +24,18 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void WindowSize_IsKept_AndNonsenseIsDropped()
+    {
+        SettingsStore.Save(SettingsFile, new UserSettings { WindowWidth = 1200, WindowHeight = 800, WindowMaximized = true });
+        var kept = SettingsStore.Load(SettingsFile, out _, out _);
+        Assert.Equal((1200, 800, true), (kept.WindowWidth, kept.WindowHeight, kept.WindowMaximized));
+
+        SettingsStore.Save(SettingsFile, new UserSettings { WindowWidth = 10, WindowHeight = 999999 });
+        var dropped = SettingsStore.Load(SettingsFile, out _, out _);
+        Assert.Equal((0, 0), (dropped.WindowWidth, dropped.WindowHeight));
+    }
+
+    [Fact]
     public void Load_NoFile_StartsWithOneEmptyTab()
     {
         // The window reads the active tab on startup, so a first run needs one.
@@ -165,6 +177,21 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void Load_MainFileMissing_RestoresTheBak()
+    {
+        // A save cut off between File.Replace's two renames leaves only settings.json.bak.
+        SettingsStore.Save(SettingsFile, new UserSettings { TextTemplates = new() { new() { Name = "Kept", Text = "a" } } });
+        SettingsStore.Save(SettingsFile, new UserSettings { TextTemplates = new() { new() { Name = "Latest", Text = "b" } } });
+        File.Delete(SettingsFile);
+
+        var loaded = SettingsStore.Load(SettingsFile, out string? warning, out bool canSave);
+
+        Assert.Equal("Kept", Assert.Single(loaded.TextTemplates).Name);
+        Assert.Contains("restored", warning);
+        Assert.True(canSave);
+    }
+
+    [Fact]
     public void Save_KeepsThePreviousFileAsBak()
     {
         SettingsStore.Save(SettingsFile, new UserSettings { TextTemplates = new() { new() { Name = "First", Text = "a" } } });
@@ -197,5 +224,25 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(84, loaded.StartKey);
         Assert.Equal(HotkeyModifiers.Win | HotkeyModifiers.Alt, loaded.StartModifiers);
         Assert.Equal((int)Keys.Pause, loaded.StopKey);
+    }
+
+    [Fact]
+    public void Load_FileFromBeforeLineNumbers_HasThemOff()
+    {
+        File.WriteAllText(SettingsFile, """{"Theme":"Dark","TextTemplates":[{"Name":"A","Text":"x"}]}""");
+
+        var loaded = SettingsStore.Load(SettingsFile, out string? warning, out _);
+
+        Assert.Null(warning);
+        Assert.False(loaded.ShowLineNumbers);
+        Assert.Equal("x", loaded.TextTemplates[0].Text);
+    }
+
+    [Fact]
+    public void ShowLineNumbers_On_IsKept()
+    {
+        SettingsStore.Save(SettingsFile, new UserSettings { ShowLineNumbers = true });
+
+        Assert.True(SettingsStore.Load(SettingsFile, out _, out _).ShowLineNumbers);
     }
 }
