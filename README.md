@@ -44,7 +44,7 @@ Download one file from [the latest release](https://github.com/ITMERowe/TYPR/rel
 | `TYPR-Portable-win-x64.exe` | You want one exe to run from anywhere. Nothing is installed. |
 | `TYPR-Setup-<version>-win-x64.exe` | You want a Start menu entry and an uninstaller. No admin rights needed. |
 
-Both include .NET, so you don't install anything else. The files aren't code-signed yet: on first run, Windows SmartScreen may say "Windows protected your PC". Choose **More info**, then **Run anyway**. Each release lists SHA-256 checksums in `SHA256SUMS.txt`.
+Both include .NET, so you don't install anything else. The files aren't code-signed yet: on first run, Windows SmartScreen may say "Windows protected your PC". Choose **More info**, then **Run anyway**.
 
 ## Use
 
@@ -100,7 +100,7 @@ The result is one self-contained `TYPR.exe`. Its build settings live in `Propert
 1. In `CHANGELOG.md`, add a `## X.Y.Z (date)` section with Highlights first.
 2. Push a `vX.Y.Z` tag.
 
-The release workflow runs the tests, builds the portable exe and the installer, writes `SHA256SUMS.txt`, and publishes a GitHub Release with that changelog section as its notes. Every push to `main` also runs the tests and uploads a test build as a workflow artifact.
+The release workflow runs the tests, builds the portable exe and the installer, and publishes a GitHub Release with that changelog section as its notes. Every push to `main` also runs the tests and uploads a test build as a workflow artifact.
 
 ## Contributing
 

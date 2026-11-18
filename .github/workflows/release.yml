@@ -86,15 +86,6 @@ jobs:
             throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
           }
 
-      - name: Create SHA256 checksums
-        shell: pwsh
-        run: |
-          $assets = Get-ChildItem artifacts/release -File | Sort-Object Name
-          foreach ($asset in $assets) {
-            $hash = (Get-FileHash $asset.FullName -Algorithm SHA256).Hash.ToLower()
-            "$hash  $($asset.Name)" | Add-Content -Encoding ascii artifacts/release/SHA256SUMS.txt
-          }
-
       # GitHub's own CLI (preinstalled on the runner) instead of a third-party action with write access.
       # CHANGELOG notes come first; --generate-notes appends the list of merged changes.
       - name: Create GitHub Release

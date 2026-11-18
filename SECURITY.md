@@ -27,7 +27,7 @@ You can expect an acknowledgement within 7 days and an assessment within 30 days
 - It runs with normal user rights and never asks for elevation. Windows does not let it type into windows running as administrator.
 - It sends keystrokes only while typing, only to the focused window, and only the text in the active tab. It doesn't use the clipboard and doesn't record keystrokes; the global shortcuts listen only for the start and stop combinations.
 - Saved texts are in `%LOCALAPPDATA%\TYPR Kimi\settings.json`, **plain unencrypted JSON** readable by anything running as your Windows user. Writes go through a temporary file and keep the previous file as `settings.json.bak`, so a crash can't leave it half-written. If the file can't be read, TYPR recovers from the backup when it can, keeps the unreadable file as a `.bad` copy, and warns you.
-- The release executables are **not code-signed** (Windows SmartScreen warns on first run). Each GitHub Release includes SHA-256 checksums of its files.
+- The release executables are **not code-signed** (Windows SmartScreen warns on first run).
 
 TYPR is intentionally designed without privileged services, persistence mechanisms, remote control, credential collection or hidden payloads. Changes should keep it that way unless the maintainer documents a different decision.
 

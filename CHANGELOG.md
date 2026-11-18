@@ -47,5 +47,5 @@ First public release.
 
 ### Build and packaging
 - Self-contained Windows x64 `TYPR.exe` from `publish.ps1`, plus an Inno Setup installer
-- A tag-triggered GitHub Actions release publishes the portable exe, the installer and `SHA256SUMS.txt`
+- A tag-triggered GitHub Actions release publishes the portable exe and the installer
 - Tests run in CI before every release
