@@ -1127,8 +1127,8 @@ namespace TYPR
 
             var typing = CardRows(
                 // Wider than the delay box: room for "20000" and the "cpm" unit inside it.
-                SettingRow(Glyph.Speed, Theme.Accent, "Speed", Fixed(cpm, 96), "Characters per minute"),
-                SettingRow(Glyph.Stopwatch, Theme.Accent, "Start delay", Fixed(startDelay, 68), "Seconds to focus the target window"),
+                SettingRow(Glyph.Speed, Theme.Text, "Speed", Fixed(cpm, 96), "Characters per minute"),
+                SettingRow(Glyph.Stopwatch, Theme.Text, "Start delay", Fixed(startDelay, 68), "Seconds to focus the target window"),
                 SliderRow(Glyph.Pulse, "Humanize pacing", jitter, jitterValue),
                 SwitchRow(Glyph.Enter, "End with Enter", pressEnter, "Press Enter after the last character"));
             // Its own group: Typing is locked during a run, this switch is not.
@@ -1188,13 +1188,16 @@ namespace TYPR
         // face, so every visible right edge lands --s3 inside the card; the rest stops Room short.
         private static Control CardRows(params Control[] rows)
         {
+            // Rows are 40 high around a 26 px tile (7 px of air), so 5 px of card padding puts the tile 12 px
+            // from the top and bottom edges, the same as from the left and right edges.
+            const int vertical = 5;
             var card = new RoundedPanel
             {
                 Dock = DockStyle.Top,
                 BackColor = Theme.Surface1,
                 BorderColor = Theme.Line,
                 CornerRadius = UiRadius.Large,
-                Padding = new Padding(UiSpacing.Medium, 1, UiSpacing.Medium - FocusRing.Room, 1),
+                Padding = new Padding(UiSpacing.Medium, vertical, UiSpacing.Medium - FocusRing.Room, vertical),
                 Margin = Padding.Empty
             };
             var stack = new TableLayoutPanel
@@ -1207,7 +1210,7 @@ namespace TYPR
             };
             stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             stack.RowCount = rows.Length * 2 - 1;
-            int height = 2;
+            int height = vertical * 2;
             int row = 0;
             for (int i = 0; i < rows.Length; i++)
             {
@@ -1292,7 +1295,7 @@ namespace TYPR
             row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             row.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
             row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            row.Controls.Add(new RowIcon { Glyph = glyph, Tint = Theme.Accent }, 0, 0);
+            row.Controls.Add(new RowIcon { Glyph = glyph, Tint = Theme.Text }, 0, 0);
             row.Controls.Add(RowLabel(title), 1, 0);
             row.Controls.Add(value, 2, 0);
             // Slider.Pad (12px) puts the rail's start under the icon's centre; the margin keeps its end as far in.
@@ -1310,7 +1313,7 @@ namespace TYPR
             toggle.Size = new Size(50, 32);
             toggle.Anchor = AnchorStyles.Right;
             toggle.Margin = Padding.Empty;
-            var row = SettingRow(glyph, Theme.Accent, title, toggle, description);
+            var row = SettingRow(glyph, Theme.Text, title, toggle, description);
             void Flip(object? sender, EventArgs e)
             {
                 if (toggle.Enabled && !ReferenceEquals(sender, toggle)) toggle.Toggle();
@@ -2895,7 +2898,7 @@ namespace TYPR
     internal sealed class RowIcon : Control
     {
         public string Glyph { get; set; } = "";
-        public Color Tint { get; set; } = Theme.Accent;
+        public Color Tint { get; set; } = Theme.Text;
 
         public RowIcon()
         {
