@@ -18,7 +18,9 @@ LicenseFile=..\LICENSE
 OutputDir=..\artifacts\release
 OutputBaseFilename=TYPR-Setup-{#AppVersion}-win-x64
 UninstallDisplayIcon={app}\TYPR.exe
-WizardStyle=modern
+SetupIconFile=..\assets\typr.ico
+; Only seen if TYPR's own setup window (see [Code]) can't start. Needs Inno Setup 6.6 or newer.
+WizardStyle=modern dynamic
 Compression=lzma2
 SolidCompression=yes
 VersionInfoVersion={#AppVersion}.0
@@ -38,3 +40,19 @@ Name: "{autodesktop}\TYPR"; Filename: "{app}\TYPR.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\TYPR.exe"; Description: "Launch TYPR"; Flags: postinstall nowait skipifsilent
+
+[Code]
+// Interactive installs show TYPR's own window (SetupForm.cs), which runs this setup again silently.
+// If it can't start or fails, the standard wizard opens instead.
+function InitializeSetup(): Boolean;
+var
+  Code: Integer;
+begin
+  Result := True;
+  if WizardSilent() then
+    exit;
+  ExtractTemporaryFile('TYPR.exe');
+  if Exec(ExpandConstant('{tmp}\TYPR.exe'), '--setup "' + ExpandConstant('{srcexe}') + '"', '',
+          SW_SHOWNORMAL, ewWaitUntilTerminated, Code) and (Code = 0) then
+    Result := False;
+end;

@@ -70,7 +70,7 @@ jobs:
         run: Copy-Item publish/win-x64/TYPR.exe artifacts/release/TYPR-Portable-win-x64.exe
 
       - name: Install Inno Setup
-        run: choco install innosetup --yes --no-progress
+        run: choco install innosetup --version=6.7.4 --yes --no-progress --allow-downgrade
 
       - name: Build installer
         shell: pwsh

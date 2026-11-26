@@ -2,6 +2,25 @@
 
 All notable changes to TYPR are documented in this file. Each version starts with **Highlights**: a short list for users, shown first on the GitHub Release. The sections after it are the full list; put the biggest changes first in each.
 
+## 1.0.0 (2026-11-26)
+
+### Highlights
+- Sharp, correctly sized interface on screens scaled to 125% and higher
+- New app icon and logo
+- A new installer that looks like TYPR
+- Switching between light and dark now plays a circle transition
+
+### Added
+- App icon on the exe, window, taskbar and installer
+- Switching theme plays a circle transition from the theme button (off when Windows animation effects are off)
+- The installer has its own one-screen window in TYPR's design, with light and dark themes
+
+### Changed
+- The title bar shows the new logo and "auto typer"
+
+### Fixed
+- At display scaling above 100%, text no longer outgrows its buttons and fields. On a second monitor with a different scale, Windows stretches the window
+
 ## 0.1.0 (2026-11-18)
 
 First public release.

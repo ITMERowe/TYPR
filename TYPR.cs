@@ -10,37 +10,50 @@ using System.Windows.Forms;
 
 namespace TYPR
 {
+    // Display scaling. Every size in TYPR is written in 100% (96 DPI) pixels and goes through S, except 1 px
+    // hairlines (edges, dividers), which stay one device pixel like Windows' own. The process is system-DPI
+    // aware, so on a monitor with another scale Windows stretches the window instead.
+    // Program.Main sets Factor before any window exists; tests and the off-screen harness set it by reflection.
+    internal static class Dpi
+    {
+        public static float Factor = 1f;
+
+        public static int S(int px) => Scale(px, Factor);
+        public static float S(float px) => px * Factor;
+
+        internal static int Scale(int px, float factor) => (int)Math.Round(px * factor, MidpointRounding.AwayFromZero);
+    }
+
     // CNTR's design tokens (CNTR docs/DESIGN.md), shared by every ITMERowe project: 4/8 spacing, three radii,
     // one type scale, one motion vocabulary. Use the token, never the literal.
     internal static class UiSpacing
     {
-        public const int XSmall = 4;   // --s1
-        public const int Small = 8;    // --s2
-        public const int Medium = 12;  // --s3
-        public const int Large = 16;   // --s4
-        public const int XLarge = 20;  // --s5
+        public static readonly int XSmall = Dpi.S(4);   // --s1
+        public static readonly int Small = Dpi.S(8);    // --s2
+        public static readonly int Medium = Dpi.S(12);  // --s3
+        public static readonly int Large = Dpi.S(16);   // --s4
+        public static readonly int XLarge = Dpi.S(20);  // --s5
         // Not a step: a Label draws its text this far in from its left edge, so text that must line up
         // with a box edge (an icon tile, a field) sits this much less far in. Visible gaps stay on the scale.
-        public const int LabelInset = 3;
+        public static readonly int LabelInset = Dpi.S(3);
     }
 
     // Minimum heights, so every control reads as a rectangle with rounded corners (radius 6), never a pill.
     internal static class UiSize
     {
-        public const int Button = 40;  // outer height of a button, focus-ring room included
-        public const int Keycap = 32;  // a shortcut key in the sidebar
-        public const int Field = 30;   // a text or number box
-        public const int Tile = 26;    // icon tiles and icon-button hover squares: a keycap's face height
+        public static readonly int Button = Dpi.S(40);  // outer height of a button, focus-ring room included
+        public static readonly int Keycap = Dpi.S(32);  // a shortcut key in the sidebar
+        public static readonly int Field = Dpi.S(30);   // a text or number box
+        public static readonly int Tile = Dpi.S(26);    // icon tiles and icon-button hover squares: a keycap's face height
     }
 
     internal static class UiRadius
     {
         // CNTR's 10/14/20 scaled to TYPR's denser desktop parts (radius about a quarter of the height).
-        public const int Small = 6;   // --r-sm: buttons, inputs, tabs, keycaps, chips, icon tiles
-        public const int Large = 12;  // --r-lg: cards
+        public static readonly int Small = Dpi.S(6);   // --r-sm: buttons, inputs, tabs, keycaps, chips, icon tiles
+        public static readonly int Large = Dpi.S(12);  // --r-lg: cards
         // Glyph-sized parts below --r-sm.
-        public const int Logo = 5;    // the 20px logo square
-        public const int XSmall = 4;  // a tab's 20px close button
+        public static readonly int XSmall = Dpi.S(4);  // a tab's 20px close button
     }
 
     internal static class UiFont
@@ -51,13 +64,17 @@ namespace TYPR
         private static readonly bool HasSemibold = FirstInstalled("Segoe UI Semibold", "") == "Segoe UI Semibold";
         private static readonly FontFamily Strong = HasSemibold ? new FontFamily("Segoe UI Semibold") : Regular;
         private static readonly FontStyle StrongStyle = HasSemibold ? FontStyle.Regular : FontStyle.Bold;
-        public static readonly Font Label = new Font(Strong, 9f, StrongStyle);             // --fs-xs semibold: chips, group titles, logo
-        public static readonly Font Small = new Font(Regular, 9.75f);                      // --fs-sm: rows, tabs, status, dialog text, errors
-        public static readonly Font SmallBold = new Font(Strong, 9.75f, StrongStyle);      // --fs-sm semibold: values, wordmark
-        public static readonly Font Button = new Font(Strong, 9.75f, StrongStyle);         // --fs-sm semibold: buttons, keycaps
-        public static readonly Font Heading = new Font(Strong, 12f, StrongStyle);          // --fs-lg semibold: dialog titles
-        public static readonly Font Editor = new Font(FirstInstalled("Consolas", "Courier New"), 10.5f); // VS Code's Windows default, 14px
-        public static readonly Font Icon = new Font(FirstInstalled("Segoe Fluent Icons", "Segoe MDL2 Assets"), 10f); // Windows' own icon font
+        public static readonly Font Label = new Font(Strong, Px(9f), StrongStyle, GraphicsUnit.Pixel);        // --fs-xs semibold: chips, group titles, logo
+        public static readonly Font Small = new Font(Regular, Px(9.75f), GraphicsUnit.Pixel);                 // --fs-sm: rows, tabs, status, dialog text, errors
+        public static readonly Font SmallBold = new Font(Strong, Px(9.75f), StrongStyle, GraphicsUnit.Pixel); // --fs-sm semibold: values
+        public static readonly Font Button = new Font(Strong, Px(9.75f), StrongStyle, GraphicsUnit.Pixel);    // --fs-sm semibold: buttons, keycaps
+        public static readonly Font Heading = new Font(Strong, Px(12f), StrongStyle, GraphicsUnit.Pixel);     // --fs-lg semibold: dialog titles
+        public static readonly Font Editor = new Font(FirstInstalled("Consolas", "Courier New"), Px(10.5f), GraphicsUnit.Pixel); // VS Code's Windows default, 14px
+        public static readonly Font Icon = new Font(FirstInstalled("Segoe Fluent Icons", "Segoe MDL2 Assets"), Px(10f), GraphicsUnit.Pixel); // Windows' own icon font
+
+        // Point sizes as pixels at 96 DPI times Dpi.Factor: the same size a point font gets on a scaled
+        // screen, but set by Factor alone, so an off-screen render at any factor matches the screen.
+        private static float Px(float points) => Dpi.S(points * 96f / 72f);
 
         private static string FirstInstalled(params string[] names)
         {
@@ -697,6 +714,11 @@ namespace TYPR
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
 
+        public const uint PW_RENDERFULLCONTENT = 2;
+
+        [DllImport("user32.dll")]
+        public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+
         [DllImport("dwmapi.dll", PreserveSig = true)]
         private static extern int DwmSetWindowAttribute(
             IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
@@ -784,13 +806,158 @@ namespace TYPR
         }
     }
 
+    // The theme switch as a circle around the toggle: the old look, laid over the rebuilt window, shrinks
+    // into the button (to dark) or opens from it (to light). Ported from spc-dashboard's view transition.
+    internal sealed class ThemeReveal : Form
+    {
+        private const int Duration = 520;
+        private readonly Bitmap snapshot;
+        private readonly Point origin;
+        private readonly bool toDark;
+        private readonly System.Diagnostics.Stopwatch clock = new System.Diagnostics.Stopwatch();
+        private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 10 };
+
+        private ThemeReveal(Bitmap snapshot, Rectangle bounds, Point origin, bool toDark)
+        {
+            this.snapshot = snapshot;
+            this.origin = origin;
+            this.toDark = toDark;
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.Manual;
+            ShowInTaskbar = false;
+            Bounds = bounds;
+            DoubleBuffered = true;
+            timer.Tick += (_, __) => Step();
+        }
+
+        protected override bool ShowWithoutActivation => true;
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                const int WS_EX_TOOLWINDOW = 0x80, WS_EX_NOACTIVATE = 0x08000000;
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+                return cp;
+            }
+        }
+
+        // Covers the window with its current look; call Play once the new theme is in place underneath.
+        // Null means switch without animating.
+        public static ThemeReveal? Cover(Form owner, Point origin, bool toDark)
+        {
+            if (!Motion.Enabled || !owner.Visible || owner.WindowState == FormWindowState.Minimized) return null;
+            var bitmap = new Bitmap(owner.Width, owner.Height);
+            bool captured;
+            using (Graphics g = Graphics.FromImage(bitmap))
+            {
+                IntPtr hdc = g.GetHdc();
+                captured = NativeMethods.PrintWindow(owner.Handle, hdc, NativeMethods.PW_RENDERFULLCONTENT);
+                g.ReleaseHdc(hdc);
+            }
+            if (!captured)
+            {
+                bitmap.Dispose();
+                return null;
+            }
+
+            var cover = new ThemeReveal(bitmap, owner.Bounds, origin, toDark);
+            cover.Show(owner);
+            NativeMethods.SetWindowAppearance(cover.Handle, Theme.WindowBorder);
+            cover.Update();
+            return cover;
+        }
+
+        public void Play()
+        {
+            // A moved or resized window no longer matches the snapshot.
+            if (Owner != null)
+            {
+                Owner.LocationChanged += OwnerChanged;
+                Owner.SizeChanged += OwnerChanged;
+            }
+            clock.Start();
+            timer.Start();
+        }
+
+        private void OwnerChanged(object? sender, EventArgs e) => Close();
+
+        private void Step()
+        {
+            double t = Math.Min(1, clock.Elapsed.TotalMilliseconds / Duration);
+            if (t >= 1)
+            {
+                Close();
+                return;
+            }
+
+            // The CSS curves: cubic-bezier(0, 0.5, 0.3, 1) to dark, cubic-bezier(0.7, 0, 1, 0.5) to light.
+            double eased = toDark ? Bezier(t, 0, 0.5, 0.3, 1) : Bezier(t, 0.7, 0, 1, 0.5);
+            float radius = (float)(FarthestCorner(origin, ClientSize) * (toDark ? 1 - eased : eased));
+            using var circle = new System.Drawing.Drawing2D.GraphicsPath();
+            circle.AddEllipse(origin.X - radius, origin.Y - radius, radius * 2, radius * 2);
+            var region = new Region(circle);
+            // To light, the circle is the hole the new theme shows through.
+            if (!toDark) region.Complement(ClientRectangle);
+            Region? previous = Region;
+            Region = region;
+            previous?.Dispose();
+        }
+
+        internal static double FarthestCorner(Point p, Size size) =>
+            Math.Sqrt(Math.Pow(Math.Max(p.X, size.Width - p.X), 2) + Math.Pow(Math.Max(p.Y, size.Height - p.Y), 2));
+
+        // CSS cubic-bezier: bisect for the curve parameter at x = t, then return its y.
+        internal static double Bezier(double t, double x1, double y1, double x2, double y2)
+        {
+            static double At(double u, double a, double b) =>
+                3 * a * u * (1 - u) * (1 - u) + 3 * b * u * u * (1 - u) + u * u * u;
+            double low = 0, high = 1;
+            for (int i = 0; i < 30; i++)
+            {
+                double mid = (low + high) / 2;
+                if (At(mid, x1, x2) < t) low = mid;
+                else high = mid;
+            }
+            return At((low + high) / 2, y1, y2);
+        }
+
+        protected override void OnPaint(PaintEventArgs e) => e.Graphics.DrawImageUnscaled(snapshot, 0, 0);
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            if (Owner != null)
+            {
+                Owner.LocationChanged -= OwnerChanged;
+                Owner.SizeChanged -= OwnerChanged;
+            }
+            base.OnFormClosed(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                timer.Dispose();
+                snapshot.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+    }
+
+    internal static class AppIcon
+    {
+        public static readonly Icon Value = new Icon(typeof(AppIcon).Assembly.GetManifestResourceStream("TYPR.ico")!);
+    }
+
     public class MainForm : Form, IMessageFilter
     {
-        private const int TitleBarHeight = 35;
-        private const int SidebarWidth = 232;
-        private const int TabHeight = 35;
-        private const int TabMinWidth = 80;
-        private const int TabMaxWidth = 160;
+        private static readonly int TitleBarHeight = Dpi.S(35);
+        private static readonly int SidebarWidth = Dpi.S(232);
+        private static readonly int TabHeight = Dpi.S(35);
+        private static readonly int TabMinWidth = Dpi.S(80);
+        private static readonly int TabMaxWidth = Dpi.S(160);
 
         private readonly EditorBox text = new EditorBox();
         private readonly ThinScrollBar editorScroll = new ThinScrollBar();
@@ -819,7 +986,7 @@ namespace TYPR
         private readonly WindowCaptionButton maximizeButton = new WindowCaptionButton(WindowCaptionButtonKind.Maximize);
         private readonly TitleIconButton themeToggleButton = new TitleIconButton();
         // Below CompactWidth the sidebar folds away; this button (or Ctrl+B) opens it over the editor.
-        private const int CompactWidth = 780;
+        private static readonly int CompactWidth = Dpi.S(780);
         private readonly TitleIconButton sidebarToggle = new TitleIconButton { Glyph = Glyph.Sidebar };
         private Control? sidebar;
         private TableLayoutPanel? contentGrid;
@@ -835,6 +1002,7 @@ namespace TYPR
         private readonly Random rng = new Random();
         private bool hotkeysRegistered;
         private bool loadingTemplate;
+        private ThemeReveal? themeReveal;
         // Last non-minimized state, so maximize, minimize, close still reopens maximized.
         private bool lastMaximized;
 
@@ -850,14 +1018,13 @@ namespace TYPR
         private const int HTBOTTOM = 15;
         private const int HTBOTTOMLEFT = 16;
         private const int HTBOTTOMRIGHT = 17;
-        private const int ResizeBorderWidth = 6;
+        private static readonly int ResizeBorderWidth = Dpi.S(6);
 
         public MainForm()
         {
             Text = "TYPR";
+            Icon = AppIcon.Value;
             FormBorderStyle = FormBorderStyle.None;
-            ClientSize = new Size(1020, 700);
-            MinimumSize = new Size(560, 640);
             StartPosition = FormStartPosition.CenterScreen;
             RestoreWindowSize();
             BackColor = Theme.WindowBorder;
@@ -976,7 +1143,7 @@ namespace TYPR
             status.Anchor = AnchorStyles.Left | AnchorStyles.Right;
             // Two lines (the footer's 40px), so a long message wraps at narrow widths instead of being cut;
             // a short one stays one line, centred.
-            status.Height = UiFont.Small.Height * 2 + 4;
+            status.Height = UiFont.Small.Height * 2 + Dpi.S(4);
             status.TextAlign = ContentAlignment.MiddleLeft;
             status.Font = UiFont.Small;
             // 8px of clear space after the status dot.
@@ -1127,8 +1294,8 @@ namespace TYPR
 
             var typing = CardRows(
                 // Wider than the delay box: room for "20000" and the "cpm" unit inside it.
-                SettingRow(Glyph.Speed, Theme.Text, "Speed", Fixed(cpm, 96), "Characters per minute"),
-                SettingRow(Glyph.Stopwatch, Theme.Text, "Start delay", Fixed(startDelay, 68), "Seconds to focus the target window"),
+                SettingRow(Glyph.Speed, Theme.Text, "Speed", Fixed(cpm, Dpi.S(96)), "Characters per minute"),
+                SettingRow(Glyph.Stopwatch, Theme.Text, "Start delay", Fixed(startDelay, Dpi.S(68)), "Seconds to focus the target window"),
                 SliderRow(Glyph.Pulse, "Humanize pacing", jitter, jitterValue),
                 SwitchRow(Glyph.Enter, "End with Enter", pressEnter, "Press Enter after the last character"));
             // Its own group: Typing is locked during a run, this switch is not.
@@ -1190,7 +1357,7 @@ namespace TYPR
         {
             // Rows are 40 high around a 26 px tile (7 px of air), so 5 px of card padding puts the tile 12 px
             // from the top and bottom edges, the same as from the left and right edges.
-            const int vertical = 5;
+            int vertical = Dpi.S(5);
             var card = new RoundedPanel
             {
                 Dock = DockStyle.Top,
@@ -1238,7 +1405,7 @@ namespace TYPR
         // A 40px row: tinted icon tile, title, the value or control right.
         private static Control SettingRow(string glyph, Color tint, string title, Control value, string? description = null)
         {
-            const int height = 40;
+            int height = Dpi.S(40);
             var row = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -1282,8 +1449,8 @@ namespace TYPR
             {
                 // The slider gets 26px: room for the hovered thumb's 2px focus ring (r 9 + 4 each way).
                 Dock = DockStyle.Fill,
-                Height = 64,
-                Tag = 64,
+                Height = Dpi.S(64),
+                Tag = Dpi.S(64),
                 ColumnCount = 3,
                 RowCount = 2,
                 BackColor = Theme.Surface1,
@@ -1293,7 +1460,7 @@ namespace TYPR
             row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            row.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+            row.RowStyles.Add(new RowStyle(SizeType.Absolute, Dpi.S(38)));
             row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             row.Controls.Add(new RowIcon { Glyph = glyph, Tint = Theme.Text }, 0, 0);
             row.Controls.Add(RowLabel(title), 1, 0);
@@ -1310,7 +1477,7 @@ namespace TYPR
         private static Control SwitchRow(string glyph, string title, ToggleCheckBox toggle, string description)
         {
             // The 44x26 track plus 3px each way, so its 2px focus ring isn't clipped.
-            toggle.Size = new Size(50, 32);
+            toggle.Size = new Size(Dpi.S(50), Dpi.S(32));
             toggle.Anchor = AnchorStyles.Right;
             toggle.Margin = Padding.Empty;
             var row = SettingRow(glyph, Theme.Text, title, toggle, description);
@@ -1398,8 +1565,8 @@ namespace TYPR
             statusDot.Dock = DockStyle.Fill;
             statusDot.Margin = Padding.Empty;
             status.ForeColor = statusWarning ? Theme.Negative : Theme.Text2;
-            ConfigureActionButton(stop, 80);
-            ConfigureActionButton(start, 120);
+            ConfigureActionButton(stop, Dpi.S(80));
+            ConfigureActionButton(start, Dpi.S(120));
             // --s2 between the visible faces: the chip has no focus-ring room, the buttons Room each.
             stop.Margin = new Padding(UiSpacing.Small - FocusRing.Room, 0, 0, 0);
             start.Margin = new Padding(UiSpacing.Small - FocusRing.Room * 2, 0, 0, 0);
@@ -1774,7 +1941,7 @@ namespace TYPR
                 return;
 
             // Its box starts where the dialog's text does.
-            var nameField = new TextField { Width = 320, Margin = new Padding(UiSpacing.LabelInset, 0, 0, 0) };
+            var nameField = new TextField { Width = Dpi.S(320), Margin = new Padding(UiSpacing.LabelInset, 0, 0, 0) };
             var nameInput = nameField.Input;
             nameInput.Text = Theme.Settings.TextTemplates[index].Name;
             nameInput.MaxLength = 80;
@@ -1891,7 +2058,8 @@ namespace TYPR
                 Padding = Padding.Empty
             };
             titleBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            titleBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 138 + TitleBarHeight * 2));
+            // The three caption buttons, then the theme and sidebar toggles.
+            titleBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, WindowCaptionButton.DefaultWidth * 3 + TitleBarHeight * 2));
             titleBar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             var identity = new TitleIdentity { Dock = DockStyle.Fill, Margin = Padding.Empty };
@@ -1942,16 +2110,17 @@ namespace TYPR
             ToggleWindowState();
         }
 
-        // The size TYPR was closed at comes back next launch; a size that no longer fits the screen is shrunk.
+        // The size TYPR was closed at comes back next launch; a size that no longer fits the screen is shrunk,
+        // the minimum too (a large display scale on a small screen).
         private void RestoreWindowSize()
         {
             var saved = Theme.Settings;
-            if (saved.WindowWidth > 0)
-            {
-                // CenterScreen opens on the monitor under the cursor, so fit that one.
-                var area = Screen.FromPoint(Cursor.Position).WorkingArea;
-                ClientSize = new Size(Math.Min(saved.WindowWidth, area.Width), Math.Min(saved.WindowHeight, area.Height));
-            }
+            // CenterScreen opens on the monitor under the cursor, so fit that one.
+            var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+            MinimumSize = new Size(Math.Min(Dpi.S(560), area.Width), Math.Min(Dpi.S(640), area.Height));
+            // Saved in 100% pixels (see RememberWindowSize).
+            var size = saved.WindowWidth > 0 ? new Size(saved.WindowWidth, saved.WindowHeight) : new Size(1020, 700);
+            ClientSize = new Size(Math.Min(Dpi.S(size.Width), area.Width), Math.Min(Dpi.S(size.Height), area.Height));
             // Maximizing before the handle exists makes RestoreBounds the frame-padded size, which grew 14px a launch.
             if (saved.WindowMaximized) Load += (_, __) => WindowState = FormWindowState.Maximized;
         }
@@ -1960,8 +2129,9 @@ namespace TYPR
         private void RememberWindowSize()
         {
             var normal = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-            Theme.Settings.WindowWidth = normal.Width;
-            Theme.Settings.WindowHeight = normal.Height;
+            // In 100% pixels, so a new display scale doesn't shrink or grow the window against its content.
+            Theme.Settings.WindowWidth = Dpi.Scale(normal.Width, 1 / Dpi.Factor);
+            Theme.Settings.WindowHeight = Dpi.Scale(normal.Height, 1 / Dpi.Factor);
             Theme.Settings.WindowMaximized = lastMaximized;
         }
 
@@ -2116,10 +2286,10 @@ namespace TYPR
 
         private static void ConfigureKeycap(RoundedButton button)
         {
-            button.MinimumSize = new Size(40, UiSize.Keycap);
+            button.MinimumSize = new Size(Dpi.S(40), UiSize.Keycap);
             // Capped so a long combo (Ctrl+Alt+Shift+Win+F12) can't push the row label out; the
             // tooltip shows it whole.
-            button.MaximumSize = new Size(110, UiSize.Keycap);
+            button.MaximumSize = new Size(Dpi.S(110), UiSize.Keycap);
             button.Padding = new Padding(UiSpacing.Small, 0, UiSpacing.Small, 0);
             button.FitText = true;
             button.Margin = Padding.Empty;
@@ -2279,8 +2449,8 @@ namespace TYPR
             {
                 Text = Hint,
                 AutoSize = true,
-                MaximumSize = new Size(360, 0),
-                MinimumSize = new Size(320, 0),
+                MaximumSize = new Size(Dpi.S(360), 0),
+                MinimumSize = new Size(Dpi.S(320), 0),
                 Font = UiFont.Small,
                 ForeColor = Theme.Text2,
                 BackColor = Theme.Surface1,
@@ -2443,8 +2613,17 @@ namespace TYPR
 
         private void ToggleTheme()
         {
+            themeReveal?.Close();
+            // The circle centres on the pointer when it is on the button, else (keyboard) on the button.
+            Rectangle button = themeToggleButton.RectangleToScreen(themeToggleButton.ClientRectangle);
+            Point origin = button.Contains(Cursor.Position)
+                ? Cursor.Position
+                : new Point(button.X + button.Width / 2, button.Y + button.Height / 2);
+            themeReveal = ThemeReveal.Cover(this, PointToClient(origin), toDark: !Theme.Dark);
             Theme.SetMode(Theme.Dark ? "Light" : "Dark");
             RebuildWindowContent();
+            Update();
+            themeReveal?.Play();
             Theme.SaveSettings();
             themeToggleButton.Focus();
         }
@@ -2679,17 +2858,18 @@ namespace TYPR
 
     internal static class FocusRing
     {
-        public const int Room = 3;
+        public static readonly int Room = Dpi.S(3);
 
         public static void Draw(Graphics g, Rectangle bounds, int radius)
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             var ring = bounds;
-            ring.Inflate(-1, -1);
+            // Half the pen in, so the whole ring stays inside bounds.
+            ring.Inflate(-Dpi.S(1), -Dpi.S(1));
             ring.Width--;
             ring.Height--;
             using var path = RoundedPanel.CreatePath(ring, radius);
-            using var pen = new Pen(Theme.Text, 2f);
+            using var pen = new Pen(Theme.Text, Dpi.S(2f));
             g.DrawPath(pen, path);
         }
 
@@ -2817,7 +2997,7 @@ namespace TYPR
     // dimmed part closes the drawer.
     internal sealed class SidebarSheet : Control
     {
-        private const int ShadowWidth = 20;
+        private static readonly int ShadowWidth = Dpi.S(20);
         private Bitmap? backdrop;
         private int backdropOffset;
 
@@ -2933,7 +3113,7 @@ namespace TYPR
     // --negative after a problem.
     internal sealed class StatusDot : Control
     {
-        public const int Diameter = 8;
+        public static readonly int Diameter = Dpi.S(8);
         private bool busy;
         private bool warning;
 
@@ -3003,9 +3183,12 @@ namespace TYPR
         }
     }
 
-    // Logo mark, the spaced TYPR wordmark (CNTR's wordmark is spaced 0.32em) and the subtitle.
+    // The app icon and the subtitle.
     internal sealed class TitleIdentity : Control
     {
+        private static readonly int MarkSize = Dpi.S(20);
+        private readonly Icon mark = new Icon(AppIcon.Value, MarkSize, MarkSize);
+
         public TitleIdentity()
         {
             TabStop = false;
@@ -3015,33 +3198,24 @@ namespace TYPR
                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) mark.Dispose();
+            base.Dispose(disposing);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
             g.Clear(Theme.Bg);
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix |
                 TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine;
 
             int x = UiSpacing.Large;
-            var logo = new Rectangle(x, (Height - 20) / 2, 20, 20);
-            using (var path = RoundedPanel.CreatePath(logo, UiRadius.Logo))
-            using (var brush = new SolidBrush(Theme.Accent))
-                g.FillPath(brush, path);
-            TextRenderer.DrawText(g, "T", UiFont.Label, logo, Theme.OnAccent,
-                TextFormatFlags.HorizontalCenter | flags);
-            x = logo.Right + UiSpacing.Medium;
+            var logo = new Rectangle(x, (Height - MarkSize) / 2, MarkSize, MarkSize);
+            g.DrawIcon(mark, logo);
+            x = logo.Right + UiSpacing.Small;
 
-            Font word = UiFont.SmallBold;
-            int tracking = (int)Math.Round(word.SizeInPoints * 96 / 72 * 0.32);
-            foreach (char letter in "TYPR")
-            {
-                string glyph = letter.ToString();
-                int width = TextRenderer.MeasureText(g, glyph, word, Size, flags).Width;
-                TextRenderer.DrawText(g, glyph, word, new Rectangle(x, 0, width + 2, Height), Theme.Text, flags);
-                x += width + tracking;
-            }
-            x += UiSpacing.XSmall;
             TextRenderer.DrawText(g, "auto typer", UiFont.Small, new Rectangle(x, 0, Math.Max(0, Width - x), Height),
                 Theme.Text3, flags);
         }
@@ -3051,7 +3225,7 @@ namespace TYPR
     // --surface-1 and opens into it; the others sit on --bg behind a --line edge.
     internal sealed class EditorTabPanel : Panel
     {
-        private const int CloseSize = 20;
+        private static readonly int CloseSize = Dpi.S(20);
         private bool hovered;
         private bool closeHovered;
 
@@ -3150,8 +3324,8 @@ namespace TYPR
                     using (var brush = new SolidBrush(Theme.Hover(fill)))
                     using (var path = RoundedPanel.CreatePath(close, UiRadius.XSmall))
                         g.FillPath(brush, path);
-                int inset = 6;
-                using var pen = new Pen(ink, 1.4f)
+                int inset = Dpi.S(6);
+                using var pen = new Pen(ink, Dpi.S(1.4f))
                 {
                     StartCap = System.Drawing.Drawing2D.LineCap.Round,
                     EndCap = System.Drawing.Drawing2D.LineCap.Round
@@ -3163,14 +3337,14 @@ namespace TYPR
             if (Focused && ShowFocusCues)
             {
                 var ring = ClientRectangle;
-                ring.Inflate(-2, -2);
+                ring.Inflate(-Dpi.S(2), -Dpi.S(2));
                 FocusRing.Draw(g, ring, UiRadius.Small);
             }
         }
 
         private System.Drawing.Drawing2D.GraphicsPath TabOutline(bool closed)
         {
-            const int r = UiRadius.Small;
+            int r = UiRadius.Small;
             int w = Width - 1;
             var path = new System.Drawing.Drawing2D.GraphicsPath();
             path.AddLine(0, Height, 0, r);
@@ -3184,12 +3358,13 @@ namespace TYPR
         // A small page with two text lines: the "file" this tab holds.
         private static void DrawDocumentIcon(Graphics g, Color color, int left, int cy)
         {
-            var page = new Rectangle(left, cy - 7, 11, 14);
-            using var pen = new Pen(color, 1.3f);
-            using (var path = RoundedPanel.CreatePath(page, 2))
+            var page = new Rectangle(left, cy - Dpi.S(7), DocumentIconWidth, Dpi.S(14));
+            using var pen = new Pen(color, Dpi.S(1.3f));
+            using (var path = RoundedPanel.CreatePath(page, Dpi.S(2)))
                 g.DrawPath(pen, path);
-            g.DrawLine(pen, page.Left + 3, cy - 1, page.Right - 3, cy - 1);
-            g.DrawLine(pen, page.Left + 3, cy + 3, page.Right - 3, cy + 3);
+            int margin = Dpi.S(3);
+            g.DrawLine(pen, page.Left + margin, cy - Dpi.S(1), page.Right - margin, cy - Dpi.S(1));
+            g.DrawLine(pen, page.Left + margin, cy + Dpi.S(3), page.Right - margin, cy + Dpi.S(3));
         }
 
         private bool ShowsClose => CanClose && Enabled;
@@ -3235,12 +3410,14 @@ namespace TYPR
         }
 
         private Rectangle GetCloseButtonBounds() =>
-            new Rectangle(Width - CloseSize - 8, (Height - CloseSize) / 2, CloseSize, CloseSize);
+            new Rectangle(Width - CloseSize - Dpi.S(8), (Height - CloseSize) / 2, CloseSize, CloseSize);
+
+        private static readonly int DocumentIconWidth = Dpi.S(11);
 
         private Rectangle GetTextBounds()
         {
-            int left = UiSpacing.Medium + 11 + 6;
-            int right = CanClose ? GetCloseButtonBounds().Left - 4 : Width - UiSpacing.Small;
+            int left = UiSpacing.Medium + DocumentIconWidth + Dpi.S(6);
+            int right = CanClose ? GetCloseButtonBounds().Left - Dpi.S(4) : Width - UiSpacing.Small;
             return new Rectangle(left, 0, Math.Max(0, right - left), Height);
         }
     }
@@ -3305,12 +3482,13 @@ namespace TYPR
 
             int cx = Width / 2;
             int cy = Height / 2;
-            using (var pen = new Pen(Enabled ? Theme.Text2 : Theme.Text3, 1.6f))
+            using (var pen = new Pen(Enabled ? Theme.Text2 : Theme.Text3, Dpi.S(1.6f)))
             {
                 pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
                 pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                g.DrawLine(pen, cx - 6, cy, cx + 6, cy);
-                g.DrawLine(pen, cx, cy - 6, cx, cy + 6);
+                int arm = Dpi.S(6);
+                g.DrawLine(pen, cx - arm, cy, cx + arm, cy);
+                g.DrawLine(pen, cx, cy - arm, cx, cy + arm);
             }
 
             if (Focused && ShowFocusCues)
@@ -3324,7 +3502,7 @@ namespace TYPR
 
     internal class RoundedPanel : Panel
     {
-        public int CornerRadius { get; set; } = 12;
+        public int CornerRadius { get; set; } = UiRadius.Large;
         public Color BorderColor { get; set; } = Color.Transparent;
         public bool SquareTop { get; set; }
 
@@ -3572,11 +3750,12 @@ namespace TYPR
                     ButtonKind.Primary or ButtonKind.Danger => Theme.Blend(Color.FromArgb(64, 0, 0, 0), fill),
                     _ => Theme.InputBorder
                 };
-                int lip = press > 0.5 ? 1 : 2;
+                int fullLip = Dpi.S(2);
+                int lip = press > 0.5 ? Dpi.S(1) : fullLip;
                 using (var path = RoundedPanel.CreatePath(face, radius))
                 using (var brush = new SolidBrush(edge))
                     g.FillPath(brush, path);
-                face = new Rectangle(face.X + 1, face.Y + 1 + (2 - lip), face.Width - 2, face.Height - 2 - lip);
+                face = new Rectangle(face.X + 1, face.Y + 1 + (fullLip - lip), face.Width - 2, face.Height - 2 - lip);
                 using (var path = RoundedPanel.CreatePath(face, radius - 1))
                 using (var brush = new SolidBrush(fill))
                     g.FillPath(brush, path);
@@ -3625,7 +3804,7 @@ namespace TYPR
 
         public ToggleCheckBox()
         {
-            Size = new Size(48, 30);
+            Size = new Size(Dpi.S(48), Dpi.S(30));
             TabStop = true;
             Cursor = Cursors.Hand;
             AccessibleRole = AccessibleRole.CheckButton;
@@ -3686,7 +3865,8 @@ namespace TYPR
             var g = e.Graphics;
             g.Clear(Parent?.BackColor ?? Theme.Surface1);
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            var track = new Rectangle((Width - 44) / 2, (Height - 26) / 2, 44, 26);
+            int trackWidth = Dpi.S(44), trackHeight = Dpi.S(26);
+            var track = new Rectangle((Width - trackWidth) / 2, (Height - trackHeight) / 2, trackWidth, trackHeight);
             double on = Math.Clamp(position, 0, 1);
 
             using (var path = RoundedPanel.CreatePath(track, track.Height / 2))
@@ -3723,10 +3903,12 @@ namespace TYPR
                 sx = 1 - 0.18 * s;
                 sy = 1 + 0.14 * s;
             }
-            double centerX = track.X + 13 + 18 * position;
-            double centerY = track.Y + 13;
-            float knobW = (float)(20 * sx);
-            float knobH = (float)(20 * sy);
+            // The knob's centre runs from the track's left end-cap centre to its right one.
+            double centerX = track.X + track.Height / 2.0 + (track.Width - track.Height) * position;
+            double centerY = track.Y + track.Height / 2.0;
+            int knobSize = Dpi.S(20);
+            float knobW = (float)(knobSize * sx);
+            float knobH = (float)(knobSize * sy);
             // Off knob: --text-3 in dark; in light a white knob with an --input-border ring (U20).
             Color offKnob = Theme.Dark || !Enabled ? Theme.Text3 : Theme.Bg;
             Color onKnob = Enabled ? Theme.OnAccent : Theme.Surface1;
@@ -3741,7 +3923,7 @@ namespace TYPR
             if (Focused && ShowFocusCues)
             {
                 var ring = track;
-                ring.Inflate(2, 2);
+                ring.Inflate(Dpi.S(2), Dpi.S(2));
                 FocusRing.Draw(g, ring, ring.Height / 2);
             }
         }
@@ -3768,11 +3950,11 @@ namespace TYPR
             set
             {
                 unit = value;
-                int room = string.IsNullOrEmpty(value) ? 0 : TextRenderer.MeasureText(value, UiFont.Small).Width + 2;
+                int room = string.IsNullOrEmpty(value) ? 0 : TextRenderer.MeasureText(value, UiFont.Small).Width + Dpi.S(2);
                 // A unit takes the right padding's place, and the box gives the number the left padding's room.
                 frame.Padding = room == 0
-                    ? new Padding(UiSpacing.Medium, 2, UiSpacing.Medium, 2)
-                    : new Padding(UiSpacing.Small, 2, UiSpacing.Small + room, 2);
+                    ? new Padding(UiSpacing.Medium, Dpi.S(2), UiSpacing.Medium, Dpi.S(2))
+                    : new Padding(UiSpacing.Small, Dpi.S(2), UiSpacing.Small + room, Dpi.S(2));
                 frame.Invalidate();
             }
         }
@@ -3784,7 +3966,7 @@ namespace TYPR
             {
                 Dock = DockStyle.Fill,
                 CornerRadius = UiRadius.Small,
-                Padding = new Padding(UiSpacing.Medium, 2, UiSpacing.Medium, 2),
+                Padding = new Padding(UiSpacing.Medium, Dpi.S(2), UiSpacing.Medium, Dpi.S(2)),
                 Margin = Padding.Empty
             };
             host = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
@@ -3890,7 +4072,7 @@ namespace TYPR
         public NumberInput()
         {
             Height = UiSize.Field;
-            MinimumSize = new Size(64, UiSize.Field);
+            MinimumSize = new Size(Dpi.S(64), UiSize.Field);
             input.Font = UiFont.SmallBold;
             input.TextAlign = HorizontalAlignment.Right;
             input.Text = "0";
@@ -4031,7 +4213,7 @@ namespace TYPR
     // Hidden while everything fits.
     internal sealed class ThinScrollBar : Control
     {
-        private const int MinThumb = 24;
+        private static readonly int MinThumb = Dpi.S(24);
         private EditorBox? target;
         private bool hovered;
         private int dragOffset = -1;
@@ -4053,7 +4235,7 @@ namespace TYPR
 
         public ThinScrollBar()
         {
-            Width = 12;
+            Width = Dpi.S(12);
             TabStop = false;
             Margin = Padding.Empty;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
@@ -4085,8 +4267,8 @@ namespace TYPR
             var thumb = Thumb();
             if (thumb.IsEmpty) return;
             bool active = hovered || dragOffset >= 0;
-            int width = active ? 8 : 4;
-            var pill = new Rectangle(Width - width - 2, thumb.Y, width, thumb.Height);
+            int width = Dpi.S(active ? 8 : 4);
+            var pill = new Rectangle(Width - width - Dpi.S(2), thumb.Y, width, thumb.Height);
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             using var path = RoundedPanel.CreatePath(pill, width / 2);
             using var brush = new SolidBrush(Color.FromArgb(active ? Theme.RailActiveAlpha : Theme.RailAlpha, Theme.Text3));
@@ -4264,8 +4446,8 @@ namespace TYPR
 
     internal sealed class Slider : Control
     {
-        private const int Pad = 12;
-        private const int Inset = 9;
+        private static readonly int Pad = Dpi.S(12);
+        private static readonly int Inset = Dpi.S(9);
         private int minimum;
         private int maximum = 50;
         private int val = 5;
@@ -4303,7 +4485,7 @@ namespace TYPR
 
         public Slider()
         {
-            Height = 32;
+            Height = Dpi.S(32);
             TabStop = true;
             Cursor = Cursors.Hand;
             AccessibleRole = AccessibleRole.Slider;
@@ -4325,27 +4507,30 @@ namespace TYPR
             g.Clear(ground);
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-            var track = new Rectangle(Pad, Height / 2 - 2, Math.Max(1, Width - Pad * 2), 4);
-            using (var path = RoundedPanel.CreatePath(track, 2))
+            int rail = Dpi.S(4);
+            var track = new Rectangle(Pad, Height / 2 - rail / 2, Math.Max(1, Width - Pad * 2), rail);
+            using (var path = RoundedPanel.CreatePath(track, rail / 2))
             using (var brush = new SolidBrush(Theme.Blend(Color.FromArgb(Theme.RailAlpha, Theme.Text3), ground)))
                 g.FillPath(brush, path);
 
             Color active = Enabled ? Theme.Accent : Theme.Text3;
             // Thumb centre travels Inset..Width-Inset so the thumb stays on the rail at both ends.
             int cx = track.X + Inset + (int)((track.Width - Inset * 2) * Fraction);
-            using (var path = RoundedPanel.CreatePath(new Rectangle(track.X, track.Y, cx - track.X, track.Height), 2))
+            using (var path = RoundedPanel.CreatePath(new Rectangle(track.X, track.Y, cx - track.X, track.Height), rail / 2))
             using (var brush = new SolidBrush(active))
                 g.FillPath(brush, path);
 
-            int radius = hovered || dragging ? 9 : 8;
+            int radius = Dpi.S(hovered || dragging ? 9 : 8);
+            int haloRadius = radius + Dpi.S(2);
+            int ringRadius = radius + Dpi.S(4);
             int cy = Height / 2;
             using (var halo = new SolidBrush(ground))
-                g.FillEllipse(halo, cx - radius - 2, cy - radius - 2, (radius + 2) * 2, (radius + 2) * 2);
+                g.FillEllipse(halo, cx - haloRadius, cy - haloRadius, haloRadius * 2, haloRadius * 2);
             using (var brush = new SolidBrush(active))
                 g.FillEllipse(brush, cx - radius, cy - radius, radius * 2, radius * 2);
 
             if (Focused && ShowFocusCues)
-                FocusRing.Draw(g, new Rectangle(cx - radius - 4, cy - radius - 4, (radius + 4) * 2, (radius + 4) * 2), radius + 4);
+                FocusRing.Draw(g, new Rectangle(cx - ringRadius, cy - ringRadius, ringRadius * 2, ringRadius * 2), ringRadius);
         }
 
         protected override bool IsInputKey(Keys keyData) =>
@@ -4429,11 +4614,13 @@ namespace TYPR
             }
         }
 
+        public static readonly int DefaultWidth = Dpi.S(46);
+
         public WindowCaptionButton(WindowCaptionButtonKind kind)
         {
             Kind = kind;
-            Width = 46;
-            Height = 40;
+            Width = DefaultWidth;
+            Height = Dpi.S(40);
             Cursor = Cursors.Hand;
             Margin = Padding.Empty;
             TabStop = false;
@@ -4453,27 +4640,28 @@ namespace TYPR
             e.Graphics.Clear(background);
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-            using var pen = new Pen(closeHover ? Color.White : hovered ? Theme.Text : Theme.Text2, 1.2f);
+            using var pen = new Pen(closeHover ? Color.White : hovered ? Theme.Text : Theme.Text2, Dpi.S(1.2f));
             int cx = Width / 2;
             int cy = Height / 2;
+            int r = Dpi.S(5); // half the glyph
             if (Kind == WindowCaptionButtonKind.Minimize)
             {
-                e.Graphics.DrawLine(pen, cx - 5, cy, cx + 5, cy);
+                e.Graphics.DrawLine(pen, cx - r, cy, cx + r, cy);
             }
             else if (Kind == WindowCaptionButtonKind.Maximize && IsMaximized)
             {
-                e.Graphics.DrawRectangle(pen, cx - 3, cy - 5, 8, 8);
-                e.Graphics.DrawLine(pen, cx - 5, cy - 2, cx - 5, cy + 5);
-                e.Graphics.DrawLine(pen, cx - 5, cy + 5, cx + 2, cy + 5);
+                e.Graphics.DrawRectangle(pen, cx - Dpi.S(3), cy - r, Dpi.S(8), Dpi.S(8));
+                e.Graphics.DrawLine(pen, cx - r, cy - Dpi.S(2), cx - r, cy + r);
+                e.Graphics.DrawLine(pen, cx - r, cy + r, cx + Dpi.S(2), cy + r);
             }
             else if (Kind == WindowCaptionButtonKind.Maximize)
             {
-                e.Graphics.DrawRectangle(pen, cx - 5, cy - 5, 10, 10);
+                e.Graphics.DrawRectangle(pen, cx - r, cy - r, r * 2, r * 2);
             }
             else
             {
-                e.Graphics.DrawLine(pen, cx - 5, cy - 5, cx + 5, cy + 5);
-                e.Graphics.DrawLine(pen, cx + 5, cy - 5, cx - 5, cy + 5);
+                e.Graphics.DrawLine(pen, cx - r, cy - r, cx + r, cy + r);
+                e.Graphics.DrawLine(pen, cx + r, cy - r, cx - r, cy + r);
             }
         }
     }
@@ -4497,8 +4685,8 @@ namespace TYPR
 
         public TitleIconButton()
         {
-            Width = 40;
-            Height = 40;
+            Width = Dpi.S(40);
+            Height = Dpi.S(40);
             Cursor = Cursors.Hand;
             Margin = Padding.Empty;
             TabStop = true;
@@ -4583,29 +4771,32 @@ namespace TYPR
 
         private static void DrawThemeGlyph(Graphics g, Color color, Color background, int cx, int cy)
         {
-            using var pen = new Pen(color, 1.6f);
+            using var pen = new Pen(color, Dpi.S(1.6f));
             using var brush = new SolidBrush(color);
 
             if (Theme.Dark)
             {
-                g.FillEllipse(brush, cx - 7, cy - 7, 14, 14);
+                int moon = Dpi.S(7), bite = Dpi.S(13);
+                g.FillEllipse(brush, cx - moon, cy - moon, moon * 2, moon * 2);
                 using var cutout = new SolidBrush(background);
-                g.FillEllipse(cutout, cx - 2, cy - 10, 13, 13);
+                g.FillEllipse(cutout, cx - Dpi.S(2), cy - Dpi.S(10), bite, bite);
                 return;
             }
 
             pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
             pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+            float inner = Dpi.S(7.5f), outer = Dpi.S(10f);
             for (int angle = 0; angle < 360; angle += 45)
             {
                 double radians = angle * Math.PI / 180.0;
-                float x1 = cx + (float)(Math.Cos(radians) * 7.5);
-                float y1 = cy + (float)(Math.Sin(radians) * 7.5);
-                float x2 = cx + (float)(Math.Cos(radians) * 10);
-                float y2 = cy + (float)(Math.Sin(radians) * 10);
+                float x1 = cx + (float)(Math.Cos(radians) * inner);
+                float y1 = cy + (float)(Math.Sin(radians) * inner);
+                float x2 = cx + (float)(Math.Cos(radians) * outer);
+                float y2 = cy + (float)(Math.Sin(radians) * outer);
                 g.DrawLine(pen, x1, y1, x2, y2);
             }
-            g.FillEllipse(brush, cx - 4, cy - 4, 8, 8);
+            int sun = Dpi.S(4);
+            g.FillEllipse(brush, cx - sun, cy - sun, sun * 2, sun * 2);
         }
     }
 
@@ -4614,7 +4805,7 @@ namespace TYPR
     internal sealed class ThemedDialog : Form
     {
         // 24 visible from the text or field to the button faces, which sit FocusRing.Room inside their control.
-        private const int ActionsGap = UiSpacing.XLarge + UiSpacing.XSmall - FocusRing.Room;
+        private static readonly int ActionsGap = UiSpacing.XLarge + UiSpacing.XSmall - FocusRing.Room;
         private readonly TableLayoutPanel layout;
         private readonly FlowLayoutPanel buttons;
 
@@ -4622,6 +4813,7 @@ namespace TYPR
         {
             // The heading below already says the title; the caption only names the app.
             Text = "TYPR";
+            Icon = AppIcon.Value;
             // A screen reader names the dialog by what it asks, not the caption.
             AccessibleName = title;
             AccessibleDescription = message;
@@ -4637,7 +4829,7 @@ namespace TYPR
             Font = UiFont.Small;
             // 10 visible on every side (owner): the text's own LabelInset makes up the left edge, and the
             // buttons' focus-ring room the right and bottom ones.
-            const int edge = UiSpacing.Small + 2;
+            int edge = UiSpacing.Small + Dpi.S(2);
             Padding = new Padding(edge - UiSpacing.LabelInset, edge, edge - FocusRing.Room, edge - FocusRing.Room);
 
             layout = new TableLayoutPanel
@@ -4664,8 +4856,8 @@ namespace TYPR
                 {
                     Text = message,
                     AutoSize = true,
-                    MaximumSize = new Size(360, 0),
-                    MinimumSize = new Size(320, 0),
+                    MaximumSize = new Size(Dpi.S(360), 0),
+                    MinimumSize = new Size(Dpi.S(320), 0),
                     Font = UiFont.Small,
                     ForeColor = Theme.Text2,
                     Margin = new Padding(0, 0, FocusRing.Room, ActionsGap)
@@ -4703,7 +4895,7 @@ namespace TYPR
                 Text = text,
                 Kind = kind,
                 DialogResult = result,
-                MinimumSize = new Size(88, UiSize.Button),
+                MinimumSize = new Size(Dpi.S(88), UiSize.Button),
                 // As the footer buttons: --s4 inside, --s2 between the visible faces.
                 Padding = new Padding(UiSpacing.Large, 0, UiSpacing.Large, 0),
                 Margin = new Padding(UiSpacing.Small - FocusRing.Room * 2, 0, 0, 0),
@@ -4774,8 +4966,17 @@ namespace TYPR
         private static bool reporting;
 
         [STAThread]
-        static void Main()
+        static void Main(string[] args)
         {
+            // Setup's window, run from a temp folder. Before the mutex: TYPR may be open during an update.
+            if (args.Length == 2 && args[0] == SetupForm.Switch)
+            {
+                UseSystemDpi();
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new SetupForm(args[1]));
+                return;
+            }
             // Two windows would each save their own copy of the texts on close, and the last one wins.
             using var single = new Mutex(true, @"Local\TYPR-single-instance", out bool first);
             if (!first)
@@ -4803,10 +5004,19 @@ namespace TYPR
                     reporting = false;
                 }
             };
-            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+            UseSystemDpi();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
+        }
+
+        // Sizes scale once, by the system DPI; on a monitor with another scale Windows stretches the window.
+        // Before anything reads a UI token: the tokens capture Dpi.Factor when first used.
+        private static void UseSystemDpi()
+        {
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            using var screen = Graphics.FromHwnd(IntPtr.Zero);
+            Dpi.Factor = screen.DpiX / 96f;
         }
     }
 }

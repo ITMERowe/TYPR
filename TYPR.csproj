@@ -7,6 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>TYPR</AssemblyName>
     <RootNamespace>TYPR</RootNamespace>
+    <ApplicationIcon>assets\typr.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup>
     <!-- Local builds are 0.0.0; release.yml passes -p:Version from the vX.Y.Z tag. -->
@@ -22,5 +23,8 @@
     <!-- The test project lives under tests/ and must not be compiled into the app. -->
     <Compile Remove="tests/**" />
     <InternalsVisibleTo Include="TYPR.Tests" />
+    <!-- Embedded too, so the window gets every size; ExtractAssociatedIcon only gives 32 px. -->
+    <EmbeddedResource Include="assets\typr.ico" LogicalName="TYPR.ico" />
+    <EmbeddedResource Include="LICENSE" LogicalName="LICENSE" />
   </ItemGroup>
 </Project>
